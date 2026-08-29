@@ -2,10 +2,11 @@
 # Enforcement: `lint-imports` (import-linter v2). Outer rings may import inner
 # rings; kernel imports ONLY stdlib + third-party (no app-internal imports).
 #
-# Contracts are added per-ring as each ring lands (Phases 5-9). As of Phase 4/5
+# Contracts are added per-ring as each ring lands (Phases 5-9). As of Phase 6
 # the live rings are:
 #   k0 kernel  -> top-level studioerp.* modules (no inner imports)
 #   k1 platform-> studioerp.platform.* (may import kernel only)
+#   r2 people  -> studioerp.rings.people.* (may import kernel + platform)
 #   api root   -> studioerp.api (composition root, may import every ring)
 
 [importlinter]
@@ -46,3 +47,16 @@ source_modules =
 forbidden_modules =
     studioerp.api
     studioerp.rings
+
+# ── r2 people: may depend on kernel + platform, never api root or sibling rings
+[importlinter:contract:3-people-layer]
+name = People ring depends only on kernel and platform
+type = forbidden
+source_modules =
+    studioerp.rings.people
+forbidden_modules =
+    studioerp.api
+    studioerp.rings.work
+    studioerp.rings.money
+    studioerp.rings.intelligence
+

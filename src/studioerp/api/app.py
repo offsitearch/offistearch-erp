@@ -90,12 +90,15 @@ def create_app() -> FastAPI:
         org_levels_router,
     )
     from studioerp.platform.settings.router import router as settings_router
+    from studioerp.rings.people.identity.router import auth_router, users_router
 
     for router in (
         departments_router,
         org_levels_router,
         settings_router,
         notifications_router,
+        auth_router,
+        users_router,
     ):
         app.include_router(router, prefix=settings.api_v1_prefix)
 
