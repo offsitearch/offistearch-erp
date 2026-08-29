@@ -1,0 +1,26 @@
+# Ring dependency contracts for the kernel+rings rebuild.
+# Enforcement: `lint-imports` (import-linter v2). Outer rings may import inner
+# rings; kernel imports ONLY stdlib + third-party (no app-internal imports).
+#
+# Contracts are added per-ring as each ring lands (Phases 5-9). The kernel is
+# the only ring present at Phase 4, so only the kernel rule is fully expressed.
+
+# ── k0 kernel: no app-internal imports ─────────────────────────────────────
+[importlinter:contract:1-kernel-no-inner-imports]
+name = Kernel depends on no inner ring or composition root
+type = forbidden
+source_modules =
+    studioerp
+forbidden_modules =
+    studioerp.platform
+    studioerp.rings
+    studioerp.api
+
+# ── api is the composition root, may reach every ring ──────────────────────
+[importlinter:contract:2-api-root]
+name = API is the composition root
+type = independence
+modules =
+    studioerp.api
+    studioerp.platform
+    studioerp.rings
