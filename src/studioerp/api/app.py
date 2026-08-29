@@ -92,6 +92,7 @@ def create_app() -> FastAPI:
     from studioerp.platform.settings.router import router as settings_router
     from studioerp.rings.people.identity.router import auth_router, users_router
     from studioerp.rings.people.employees.router import router as employees_router
+    from studioerp.rings.people.attendance.router import router as attendance_router
 
     for router in (
         departments_router,
@@ -101,6 +102,7 @@ def create_app() -> FastAPI:
         auth_router,
         users_router,
         employees_router,
+        attendance_router,
     ):
         app.include_router(router, prefix=settings.api_v1_prefix)
 
