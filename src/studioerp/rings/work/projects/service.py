@@ -2,16 +2,19 @@
 
 Ported from ``app/modules/projects/service.py``.
 
-Deferred cross-ring bits:
-- ``client_id`` is stored as a plain int but not FK-validated nor resolved to a
-  ``client_name`` — clients live in the money ring, so client_name is ``None``
-  until that ring lands and the composition root wires cross-ring resolution.
+Cross-ring bit:
+- ``client_id`` is stored as a plain int, not FK-validated, and is resolved to a
+  ``client_name`` via the injectable ``client_name_resolver`` hook. The work
+  ring cannot import the money ring's ``Client`` model, so the api composition
+  root supplies an implementation that reads the ``clients`` table. Until it is
+  registered, ``client_name`` stays ``None``.
 - The staff-scope condition that also matches projects with a task assigned to
-  the user is deferred until the sibling ``tasks`` module lands in this ring.
+  the user is deferred until a later ring pass.
 """
 
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Callable, Awaitable
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +33,17 @@ from studioerp.rings.work.projects.schemas import (
     ProjectUpdate,
 )
 from studioerp.time import now_local
+
+# Injectable cross-ring hook: maps project client_ids to display names. The api
+# composition root registers a money-ring-backed implementation; until then all
+# names resolve to None.
+client_name_resolver: Callable[[AsyncSession, list[int]], Awaitable[dict[int, str]]] | None = None
+
+
+async def _client_names(db: AsyncSession, client_ids: set[int] | list[int]) -> dict[int, str]:
+    if not client_ids or client_name_resolver is None:
+        return {}
+    return await client_name_resolver(db, list(client_ids))
 
 _PCT = Decimal("0.01")
 
@@ -206,6 +220,8 @@ async def list_projects(
             base.order_by(Project.id.desc()).offset((page - 1) * page_size).limit(page_size)
         )
     ).all()
+    client_ids = {project.client_id for project, _ in rows if project.client_id is not None}
+    client_name_map = await _client_names(db, client_ids)
     items = [
         _strip_financial(
             {
@@ -214,7 +230,9 @@ async def list_projects(
                 "name": project.name,
                 "project_type": project.project_type.value,
                 "client_id": project.client_id,
-                "client_name": None,
+                "client_name": client_name_map.get(project.client_id)
+                if project.client_id is not None
+                else None,
                 "location": project.location,
                 "status": project.status.value,
                 "project_lead_id": project.project_lead_id,
@@ -269,6 +287,9 @@ async def get_project(db: AsyncSession, project_id: int, include_financial: bool
     ]
 
     project.progress_pct = _compute_progress(project.phases)
+    client_name_map = await _client_names(
+        db, {project.client_id} if project.client_id is not None else set()
+    )
     return _strip_financial(
         {
             "id": project.id,
@@ -278,7 +299,9 @@ async def get_project(db: AsyncSession, project_id: int, include_financial: bool
             "project_type": project.project_type.value,
             "category": project.category,
             "client_id": project.client_id,
-            "client_name": None,
+            "client_name": client_name_map.get(project.client_id)
+            if project.client_id is not None
+            else None,
             "location": project.location,
             "plot_area": project.plot_area,
             "built_up_area": project.built_up_area,

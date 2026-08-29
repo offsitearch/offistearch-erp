@@ -99,6 +99,35 @@ def create_app() -> FastAPI:
     from studioerp.rings.work.tasks.router import router as tasks_router
     from studioerp.rings.work.timesheets.router import router as timesheets_router
     from studioerp.rings.work.site_visits.router import router as site_visits_router
+    from studioerp.rings.money.clients.router import router as clients_router
+    from studioerp.rings.money.finance.router import (
+        expenses_router,
+        finance_router,
+        invoices_router,
+    )
+
+    # ── Cross-ring wiring (composition root only) ──────────────────────
+    # The work ring stores Project.client_id as a plain int and exposes an
+    # injectable client_name_resolver hook. Register the money-ring-backed
+    # implementation here so project listings resolve client display names.
+    from sqlalchemy import select as _select
+
+    from studioerp.rings.money.clients.models import Client
+    from studioerp.rings.work.projects import service as project_service
+
+    async def _resolve_client_names(db, client_ids):
+        if not client_ids:
+            return {}
+        rows = (
+            await db.execute(
+                _select(Client.id, Client.name).where(
+                    Client.id.in_(client_ids), Client.is_active.is_(True)
+                )
+            )
+        ).all()
+        return {cid: name for cid, name in rows}
+
+    project_service.client_name_resolver = _resolve_client_names
 
     for router in (
         departments_router,
@@ -115,6 +144,10 @@ def create_app() -> FastAPI:
         tasks_router,
         timesheets_router,
         site_visits_router,
+        clients_router,
+        finance_router,
+        invoices_router,
+        expenses_router,
     ):
         app.include_router(router, prefix=settings.api_v1_prefix)
 

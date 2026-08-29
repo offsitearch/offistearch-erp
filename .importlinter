@@ -8,6 +8,7 @@
 #   k1 platform-> studioerp.platform.* (may import kernel only)
 #   r2 people  -> studioerp.rings.people.* (may import kernel + platform)
 #   r3 work    -> studioerp.rings.work.* (may import kernel + platform + people)
+#   r4 money   -> studioerp.rings.money.* (may import kernel + platform + people + work)
 #   api root   -> studioerp.api (composition root, may import every ring)
 
 [importlinter]
@@ -71,5 +72,16 @@ source_modules =
 forbidden_modules =
     studioerp.api
     studioerp.rings.money
+    studioerp.rings.intelligence
+
+# ── r4 money: may depend on kernel + platform + people + work, never api root
+#    or the outer intelligence ring
+[importlinter:contract:5-money-layer]
+name = Money ring depends only on kernel, platform, people and work
+type = forbidden
+source_modules =
+    studioerp.rings.money
+forbidden_modules =
+    studioerp.api
     studioerp.rings.intelligence
 
