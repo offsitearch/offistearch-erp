@@ -12,3 +12,10 @@ class PaginatedResponse(BaseModel, Generic[T]):
     total: int
     page: int
     page_size: int
+
+
+class MessageResponse(BaseModel):
+    """Generic ``{message: str}`` envelope shared across ring routes."""
+
+    message: str
+

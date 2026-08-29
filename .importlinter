@@ -2,25 +2,47 @@
 # Enforcement: `lint-imports` (import-linter v2). Outer rings may import inner
 # rings; kernel imports ONLY stdlib + third-party (no app-internal imports).
 #
-# Contracts are added per-ring as each ring lands (Phases 5-9). The kernel is
-# the only ring present at Phase 4, so only the kernel rule is fully expressed.
+# Contracts are added per-ring as each ring lands (Phases 5-9). As of Phase 4/5
+# the live rings are:
+#   k0 kernel  -> top-level studioerp.* modules (no inner imports)
+#   k1 platform-> studioerp.platform.* (may import kernel only)
+#   api root   -> studioerp.api (composition root, may import every ring)
+
+[importlinter]
+root_package = studioerp
 
 # ── k0 kernel: no app-internal imports ─────────────────────────────────────
 [importlinter:contract:1-kernel-no-inner-imports]
 name = Kernel depends on no inner ring or composition root
 type = forbidden
 source_modules =
-    studioerp
+    studioerp.config
+    studioerp.security
+    studioerp.time
+    studioerp.money
+    studioerp.currency
+    studioerp.errors
+    studioerp.enums
+    studioerp.state_machines
+    studioerp.rbac
+    studioerp.pdf_constants
+    studioerp.db
+    studioerp.request_context
+    studioerp.logging_config
+    studioerp.schemas
+    studioerp.middleware
+    studioerp.audit
 forbidden_modules =
     studioerp.platform
     studioerp.rings
     studioerp.api
 
-# ── api is the composition root, may reach every ring ──────────────────────
-[importlinter:contract:2-api-root]
-name = API is the composition root
-type = independence
-modules =
-    studioerp.api
+# ── k1 platform: may depend on kernel only (never outer rings or api root) ─
+[importlinter:contract:2-platform-layer]
+name = Platform ring depends only on the kernel
+type = forbidden
+source_modules =
     studioerp.platform
+forbidden_modules =
+    studioerp.api
     studioerp.rings
