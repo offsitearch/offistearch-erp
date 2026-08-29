@@ -98,6 +98,7 @@ def create_app() -> FastAPI:
     from studioerp.rings.work.projects.router import router as projects_router
     from studioerp.rings.work.tasks.router import router as tasks_router
     from studioerp.rings.work.timesheets.router import router as timesheets_router
+    from studioerp.rings.work.site_visits.router import router as site_visits_router
 
     for router in (
         departments_router,
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
         projects_router,
         tasks_router,
         timesheets_router,
+        site_visits_router,
     ):
         app.include_router(router, prefix=settings.api_v1_prefix)
 
