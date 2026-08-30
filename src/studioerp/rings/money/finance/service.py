@@ -635,6 +635,16 @@ async def _overview_metrics(db: AsyncSession, start: date, end: date) -> dict:
         (inr_value(expense.amount, expense.exchange_rate) for expense in expenses), Decimal("0")
     )
     expense_count = len(expenses)
+    category_totals: dict[str, Decimal] = {}
+    for expense in expenses:
+        amount_inr = inr_value(expense.amount, expense.exchange_rate)
+        category_totals[expense.category] = (
+            category_totals.get(expense.category, Decimal("0")) + amount_inr
+        )
+    expenses_by_category = [
+        {"category": category, "total": _q(total)}
+        for category, total in sorted(category_totals.items(), key=lambda item: item[1], reverse=True)
+    ]
 
     return {
         "invoiced": _q(invoiced),
@@ -646,6 +656,7 @@ async def _overview_metrics(db: AsyncSession, start: date, end: date) -> dict:
         "paid_count": paid_count,
         "overdue_count": overdue_count,
         "expense_count": expense_count,
+        "expenses_by_category": expenses_by_category,
     }
 
 

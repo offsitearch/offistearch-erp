@@ -40,22 +40,14 @@ function errDetail(err: unknown): string | null {
   return detail == null ? null : JSON.stringify(detail);
 }
 
-const STATUS_TABS: { key: string; label: string }[] = [
-  { key: '', label: 'All' },
-  { key: 'pending', label: 'Pending' },
-  { key: 'approved', label: 'Approved' },
-  { key: 'rejected', label: 'Rejected' },
-];
-
 export default function ExpensesPage() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
-  const [status, setStatus] = useState('');
   const [creating, setCreating] = useState(false);
 
   const expenses = useQuery({
-    queryKey: ['expenses', status],
-    queryFn: () => getExpenses(status ? { status } : {}),
+    queryKey: ['expenses'],
+    queryFn: () => getExpenses(),
   });
 
   const totals = useMemo(() => {
@@ -93,20 +85,6 @@ export default function ExpensesPage() {
           <p className="text-sm text-muted">Approved</p>
           <p className="mt-1 text-2xl font-bold text-success">{formatCurrency(totals.approved, 'INR')}</p>
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-surface p-1">
-        {STATUS_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setStatus(tab.key)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-              status === tab.key ? 'bg-orange text-white' : 'text-muted hover:text-ink'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
       </div>
 
       {expenses.isPending ? (
@@ -334,16 +312,22 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
             </label>
-            <label className={`${modalLabelClass} mt-4`}>
-              Description
+            <div className="relative mt-4">
               <textarea
+                id="expense-description"
                 rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="What did this expense cover? e.g. Cab for the client site visit"
-                className={`${inputClass} mt-1 h-auto resize-y py-2.5 leading-relaxed`}
+                className={`${inputClass} h-auto resize-y py-2.5 pl-28 leading-relaxed`}
               />
-            </label>
+              <label
+                htmlFor="expense-description"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold uppercase tracking-wide text-muted"
+              >
+                Description
+              </label>
+            </div>
           </FormSection>
 
           <FormSection icon={Building2} title="Project & receipt" hint="Both optional — attach a photo or PDF of the bill.">

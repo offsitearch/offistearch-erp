@@ -825,6 +825,7 @@ export interface FinanceOverview {
   paid_count: number;
   overdue_count: number;
   expense_count: number;
+  expenses_by_category?: { category: string; total: string }[];
   previous?: FinanceOverview | null;
 }
 

@@ -3,8 +3,8 @@ import { Banknote, FileText, IndianRupee, Receipt, TrendingUp } from 'lucide-rea
 import { useMemo, useState } from 'react';
 import { getFinanceOverview } from '../../api/finance';
 import { LogoLoader } from '../../components/LogoLoader';
-import { formatINR } from '../../lib/constants';
-import type { FinanceOverview } from '../../lib/types';
+import { expenseCategoryLabel, formatINR } from '../../lib/constants';
+import type { ExpenseCategory, FinanceOverview } from '../../lib/types';
 import { useAuthStore } from '../../store/authStore';
 import { FinanceTabs } from './components/FinanceTabs';
 import { useTranslation } from 'react-i18next';
@@ -75,7 +75,10 @@ export default function FinanceDashboardPage() {
     }));
   }, [overviews.data]);
 
-  const maxBar = Math.max(1, ...chartData.map((d) => d.invoiced));
+  const maxBar = Math.max(
+    1,
+    ...chartData.map((d) => Math.max(d.received, d.invoiced, d.expenses)),
+  );
 
   if (overviews.isPending) {
     return <LogoLoader />;
@@ -137,12 +140,12 @@ export default function FinanceDashboardPage() {
                 <div className="flex h-40 w-full items-end justify-center gap-1.5">
                   <div
                     className="w-1/2 max-w-10 rounded-t-md bg-orange transition-all"
-                    style={{ height: `${Math.max(4, (d.received / maxBar) * 100)}%` }}
+                    style={{ height: `${Math.min(100, Math.max(4, (d.received / maxBar) * 100))}%` }}
                     title={`Received: ${formatINR(d.received)}`}
                   />
                   <div
                     className="w-1/2 max-w-10 rounded-t-md bg-danger/40 transition-all"
-                    style={{ height: `${Math.max(4, (d.expenses / maxBar) * 100)}%` }}
+                    style={{ height: `${Math.min(100, Math.max(4, (d.expenses / maxBar) * 100))}%` }}
                     title={`Expenses: ${formatINR(d.expenses)}`}
                   />
                 </div>
@@ -174,9 +177,107 @@ export default function FinanceDashboardPage() {
               <Row label="Overdue" value={current?.overdue_count ?? 0} tone="text-danger" />
               <Row label="Approved expenses" value={current?.expense_count ?? 0} tone="text-warning" />
             </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-surface p-5 shadow-card">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-ink">Expense breakdown</h2>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange/10 text-orange">
+              <Receipt className="h-4 w-4" />
+            </div>
           </div>
+          <ExpensePie data={current?.expenses_by_category ?? []} />
         </div>
       </div>
+      </div>
+    </div>
+  );
+}
+
+const EXPENSE_PIE_COLORS = [
+  '#C9964A',
+  '#B08968',
+  '#8C5F44',
+  '#D4A373',
+  '#A98467',
+  '#7A624F',
+  '#E4B98C',
+  '#C5A48A',
+  '#96755B',
+  '#6C5640',
+];
+
+function ExpensePie({ data }: { data: { category: string; total: string }[] }) {
+  const total = data.reduce((sum, d) => sum + Number(d.total), 0);
+  if (data.length === 0 || total <= 0) {
+    return (
+      <div className="mt-6 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border py-8 text-center">
+        <Receipt className="h-6 w-6 text-muted" />
+        <p className="text-sm text-muted">No expenses recorded for this period.</p>
+      </div>
+    );
+  }
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  let acc = 0;
+  const segments = data.map((d, i) => {
+    const start = acc;
+    const fraction = Number(d.total) / total;
+    acc += fraction;
+    return {
+      key: d.category,
+      start,
+      fraction,
+      color: EXPENSE_PIE_COLORS[i % EXPENSE_PIE_COLORS.length],
+    };
+  });
+  return (
+    <div className="mt-4 flex items-center gap-4">
+      <div className="relative shrink-0">
+        <svg viewBox="0 0 120 120" className="h-32 w-32 -rotate-90">
+          <circle cx="60" cy="60" r={radius} fill="none" stroke="#ECE9E1" strokeWidth="15" />
+          {segments.map((s) => (
+            <circle
+              key={s.key}
+              cx="60"
+              cy="60"
+              r={radius}
+              fill="none"
+              stroke={s.color}
+              strokeWidth="15"
+              strokeDasharray={`${s.fraction * circumference} ${circumference}`}
+              strokeDashoffset={-s.start * circumference}
+            />
+          ))}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-lg font-bold text-ink">{formatINR(total)}</span>
+          <span className="text-xs text-muted">Total</span>
+        </div>
+      </div>
+      <ul className="min-w-0 flex-1 space-y-1.5">
+        {segments.map((s, i) => {
+          const amount = Number(data[i].total);
+          const pct = Math.round(s.fraction * 100);
+          return (
+            <li key={s.key} className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: s.color }}
+                />
+                <span className="truncate text-muted">
+                  {expenseCategoryLabel(s.key as ExpenseCategory)}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2 font-semibold text-ink">
+                {formatINR(amount)}
+                <span className="w-9 text-right text-xs text-muted">{pct}%</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
