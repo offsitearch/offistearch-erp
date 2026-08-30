@@ -15,6 +15,7 @@ import DatePicker from '../../components/ui/DatePicker';
 import CurrencyInput from '../../components/ui/CurrencyInput';
 import { useToast } from '../../components/Toast';
 import {
+  CURRENCY_OPTIONS,
   expenseCategoryLabel,
   expenseStatusMeta,
   EXPENSE_CATEGORY_OPTIONS,
@@ -281,29 +282,43 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
                   value={amount}
                   onChange={setAmount}
                   currency={currency}
-                  onCurrencyChange={setCurrency}
+                  required
                   className="mt-1"
                 />
+              </label>
+              <label className={modalLabelClass}>
+                Currency
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  className={`${selectClass} mt-1`}
+                >
+                  {CURRENCY_OPTIONS.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.code} — {c.label.split(' - ')[1]}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className={modalLabelClass}>
                 Date
                 <DatePicker value={date} onChange={setDate} className="mt-1" />
               </label>
+              {currency !== 'INR' && (
+                <label className={modalLabelClass}>
+                  1 {currency} → INR
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    value={exchangeRate}
+                    onChange={(e) => setExchangeRate(e.target.value)}
+                    placeholder="83.40"
+                    className={`${inputClass} mt-1`}
+                  />
+                </label>
+              )}
             </div>
-            {currency !== 'INR' && (
-              <label className={`${modalLabelClass} mt-3`}>
-                1 {currency} → INR
-                <input
-                  type="number"
-                  min="0"
-                  step="0.0001"
-                  value={exchangeRate}
-                  onChange={(e) => setExchangeRate(e.target.value)}
-                  placeholder="83.40"
-                  className={`${inputClass} mt-1`}
-                />
-              </label>
-            )}
           </FormSection>
 
           <FormSection icon={Receipt} title="Category & description">
