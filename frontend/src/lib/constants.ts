@@ -485,6 +485,7 @@ export function formatINR(value: string | number | null | undefined): string {
 export const CURRENCY_OPTIONS: { code: string; label: string; symbol: string }[] = [
   { code: 'INR', label: 'INR - Indian Rupee', symbol: '₹' },
   { code: 'USD', label: 'USD - US Dollar', symbol: '$' },
+  { code: 'SGD', label: 'SGD - Singapore Dollar', symbol: 'S$' },
   { code: 'EUR', label: 'EUR - Euro', symbol: '€' },
   { code: 'GBP', label: 'GBP - British Pound', symbol: '£' },
   { code: 'JPY', label: 'JPY - Japanese Yen', symbol: '¥' },
@@ -492,7 +493,6 @@ export const CURRENCY_OPTIONS: { code: string; label: string; symbol: string }[]
   { code: 'SAR', label: 'SAR - Saudi Riyal', symbol: 'SAR' },
   { code: 'CAD', label: 'CAD - Canadian Dollar', symbol: 'C$' },
   { code: 'AUD', label: 'AUD - Australian Dollar', symbol: 'A$' },
-  { code: 'SGD', label: 'SGD - Singapore Dollar', symbol: 'S$' },
 ];
 
 export function currencySymbol(code: string): string {

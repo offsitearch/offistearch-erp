@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import type { ProjectDetail, ProjectCreateInput, ProjectType } from '../../../lib/types';
-import { PROJECT_TYPE_OPTIONS, PROJECT_STATUS_OPTIONS, projectTypeLabel } from '../../../lib/constants';
+import { CURRENCY_OPTIONS, PROJECT_TYPE_OPTIONS, PROJECT_STATUS_OPTIONS, projectTypeLabel } from '../../../lib/constants';
 import { toISODate } from '../../../lib/date';
 import { formatIndianCurrencyInput, parseIndianCurrencyInput } from '../../../lib/currencyInput';
 import CurrencyInput from '../../../components/ui/CurrencyInput';
@@ -192,31 +192,46 @@ export default function EditProjectModal({
             </label>
           </div>
           {showMoney && (
-            <label className="block">
-              <span className={modalLabelClass}>Budget</span>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <CurrencyInput
-                    value={form.budget}
-                    onChange={(budget) => set('budget', budget)}
-                    currency={form.currency}
-                    onCurrencyChange={(ccy) => set('currency', ccy)}
-                    placeholder="e.g. 10,00,000"
-                  />
-                </div>
-                {form.currency !== 'INR' && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className={modalLabelClass}>Budget</span>
+                <CurrencyInput
+                  value={form.budget}
+                  onChange={(budget) => set('budget', budget)}
+                  currency={form.currency}
+                  placeholder="e.g. 10,00,000"
+                  className="mt-1"
+                />
+              </label>
+              <label className="block">
+                <span className={modalLabelClass}>Currency</span>
+                <select
+                  value={form.currency}
+                  onChange={(e) => set('currency', e.target.value)}
+                  className={`${modalFieldClass} select-chevron mt-1`}
+                >
+                  {CURRENCY_OPTIONS.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {form.currency !== 'INR' && (
+                <label className="block sm:col-span-2">
+                  <span className={modalLabelClass}>Exchange rate (1 {form.currency} → INR)</span>
                   <input
                     type="number"
                     min="0"
                     step="0.0001"
                     value={form.exchange_rate}
                     onChange={(e) => set('exchange_rate', e.target.value)}
-                    placeholder={`1 ${form.currency} → INR`}
-                    className={`${modalFieldClass} w-32`}
+                    placeholder="e.g. 83.40"
+                    className={`${modalFieldClass} mt-1`}
                   />
-                )}
-              </div>
-            </label>
+                </label>
+              )}
+            </div>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">

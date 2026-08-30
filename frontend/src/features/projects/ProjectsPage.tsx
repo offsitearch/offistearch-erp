@@ -20,6 +20,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { LogoLoader } from '../../components/LogoLoader';
 import {
   canAccess,
+  CURRENCY_OPTIONS,
   formatCurrency,
   levelRank,
   projectTypeLabel,
@@ -35,7 +36,7 @@ import { encodeId } from '../../lib/obfuscate';
 import { ProjectStatusBadge } from './components/ProjectStatusBadge';
 import DatePicker from '../../components/ui/DatePicker';
 import { useTranslation } from 'react-i18next';
-import { inputClass, primaryBtnClass, secondaryBtnClass, pageBtnClass, labelClass } from '../../lib/styles';
+import { inputClass, selectClass, primaryBtnClass, secondaryBtnClass, pageBtnClass, labelClass } from '../../lib/styles';
 
 const fieldClass = `${inputClass} w-full`;
 
@@ -518,33 +519,46 @@ function CreateProjectModal({
           />
         </label>
         {canEditMoney && (
-          <label className="block">
-            <span className={labelClass}>Budget</span>
-            <div className="mt-1 flex gap-2">
-              <div className="flex-1">
-                <CurrencyInput
-                  value={budget}
-                  onChange={setBudget}
-                  currency={currency}
-                  onCurrencyChange={setCurrency}
-                  placeholder="e.g. 25,00,000"
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className={labelClass}>Budget</span>
+              <CurrencyInput
+                value={budget}
+                onChange={setBudget}
+                currency={currency}
+                placeholder="e.g. 25,00,000"
+                className="mt-1"
+              />
+            </label>
+            <label className="block">
+              <span className={labelClass}>Currency</span>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className={`${selectClass} mt-1`}
+              >
+                {CURRENCY_OPTIONS.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {currency !== 'INR' && (
+              <label className="block sm:col-span-2">
+                <span className={labelClass}>Exchange rate (1 {currency} → INR)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={exchangeRate}
+                  onChange={(e) => setExchangeRate(e.target.value)}
+                  placeholder="e.g. 83.40"
+                  className={`${inputClass} mt-1`}
                 />
-              </div>
-              {currency !== 'INR' && (
-                <div className="mt-0.5 flex flex-1 flex-col">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.0001"
-                    value={exchangeRate}
-                    onChange={(e) => setExchangeRate(e.target.value)}
-                    placeholder={`1 ${currency} → INR`}
-                    className={fieldClass}
-                  />
-                </div>
-              )}
-            </div>
-          </label>
+              </label>
+            )}
+          </div>
         )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <label className="block">
