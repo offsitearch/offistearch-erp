@@ -1,5 +1,5 @@
 ﻿import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, Download, Edit3, HardHat, MapPin, Plus, Trash2, X } from 'lucide-react';
+import { CalendarDays, Camera, Clock, Download, Edit3, HardHat, MapPin, Plus, StickyNote, Sun, Trash2, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { getProjects } from '../../api/projects';
 import {
@@ -19,7 +19,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import DatePicker from '../../components/ui/DatePicker';
 import TimeInput from '../../components/ui/TimeInput';
 import { useToast } from '../../components/Toast';
-import { siteVisitStatusMeta, canAccess } from '../../lib/constants';
+import { projectStatusMeta, siteVisitStatusMeta, canAccess } from '../../lib/constants';
 import { formatDate, formatTime } from '../../lib/date';
 import type {
   ProjectListItem,
@@ -30,6 +30,7 @@ import type {
 } from '../../lib/types';
 import { useAuthStore } from '../../store/authStore';
 import { inputClass, selectClass, primaryBtnClass, secondaryBtnClass, dangerBtnClass, modalLabelClass } from '../../lib/styles';
+import FormSection from '../../components/ui/FormSection';
 import { useTranslation } from 'react-i18next';
 
 const successBtnClass =
@@ -429,119 +430,200 @@ function SiteVisitFormModal({
   }
 
   const projectsList = (projects.data as unknown as { results: ProjectListItem[] } | undefined)?.results ?? [];
+  const selectedProject = projectsList.find((p) => p.id === form.project_id);
+
+  const durationText = (() => {
+    if (!form.start_time || !form.end_time) return null;
+    const [sh, sm] = form.start_time.split(':').map((n) => Number(n));
+    const [eh, em] = form.end_time.split(':').map((n) => Number(n));
+    let total = eh * 60 + em - (sh * 60 + sm);
+    if (total < 0) total += 24 * 60;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h === 0) return `${m}m`;
+    return m > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
+  })();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navyDark/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface p-6 shadow-overlay">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-ink">{isEdit ? t('siteVisits.editVisit') : t('siteVisits.logVisit')}</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-muted hover:bg-surfaceWarm">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-overlay">
+        <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange/10 text-orange">
+              <HardHat className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-ink">{isEdit ? t('siteVisits.editVisit') : t('siteVisits.logVisit')}</h2>
+              <p className="text-xs text-muted">Record the purpose, timing and site details of the visit.</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1.5 text-muted hover:bg-surfaceWarm hover:text-ink">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <form onSubmit={submit} className="mt-4 space-y-3">
-          <label className={modalLabelClass}>
-            {t('siteVisits.purpose')} *
-            <input
-              required
-              value={form.purpose ?? ''}
-              onChange={(e) => set('purpose', e.target.value)}
-              className={`${inputClass} mt-1`}
-            />
-          </label>
-          <label className={modalLabelClass}>
-            {t('siteVisits.project')} *
-            <select
-              required
-              value={form.project_id}
-              onChange={(e) => set('project_id', Number(e.target.value))}
-              className={`${selectClass} mt-1`}
-            >
-              <option value={0} disabled>
-                {t('siteVisits.selectProject')}
-              </option>
-              {projectsList.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.project_code} — {p.name}
+
+        <form onSubmit={submit} className="mt-5 space-y-6">
+          <FormSection icon={HardHat} title="Project" hint={selectedProject ? `${selectedProject.project_code} · ${selectedProject.client_name ?? 'No client'}` : undefined}>
+            <label className={modalLabelClass}>
+              Project *
+              <select
+                required
+                value={form.project_id}
+                onChange={(e) => set('project_id', Number(e.target.value))}
+                disabled={projects.isPending}
+                className={`${selectClass} mt-1`}
+              >
+                <option value={0} disabled>
+                  {projects.isPending ? 'Loading projects…' : t('siteVisits.selectProject')}
                 </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className={modalLabelClass}>
-              {t('siteVisits.visitDate')} *
-              <DatePicker
-                value={form.visit_date}
-                onChange={(v) => set('visit_date', v)}
-                className="mt-1"
-              />
+                {projectsList.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.project_code} — {p.name}
+                  </option>
+                ))}
+              </select>
             </label>
+            {selectedProject && (
+              <div className="mt-2 rounded-lg border border-border bg-surfaceWarm/60 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-orange/10 text-orange">
+                    <HardHat className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-ink">{selectedProject.name}</span>
+                    <span className="block truncate text-xs text-muted">{selectedProject.client_name ?? 'No client linked'}</span>
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${projectStatusMeta(selectedProject.status).badge}`}>
+                    {projectStatusMeta(selectedProject.status).label}
+                  </span>
+                </div>
+                {(selectedProject.location || selectedProject.lead_name) && (
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-2 text-xs text-muted">
+                    {selectedProject.location && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="h-3 w-3" /> {selectedProject.location}
+                      </span>
+                    )}
+                    {selectedProject.lead_name && (
+                      <span className="flex items-center gap-1">
+                        <Users className="h-3 w-3" /> {selectedProject.lead_name}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </FormSection>
+
+          <FormSection icon={CalendarDays} title="Schedule">
             <label className={modalLabelClass}>
-              Location
+              {t('siteVisits.purpose')} *
               <input
-                value={form.location ?? ''}
-                onChange={(e) => set('location', e.target.value)}
+                required
+                autoFocus
+                value={form.purpose ?? ''}
+                onChange={(e) => set('purpose', e.target.value)}
+                placeholder="e.g. Foundation inspection, survey with client…"
                 className={`${inputClass} mt-1`}
               />
             </label>
-          </div>
-          <label className={modalLabelClass}>
-            Weather
-            <input
-              value={form.weather ?? ''}
-              onChange={(e) => set('weather', e.target.value)}
-              placeholder={t('siteVisits.weatherPlaceholder')}
-              className={`${inputClass} mt-1`}
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-3">
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <label className={modalLabelClass}>
+                {t('siteVisits.visitDate')} *
+                <DatePicker
+                  value={form.visit_date}
+                  onChange={(v) => set('visit_date', v)}
+                  className="mt-1"
+                />
+              </label>
+              <label className={modalLabelClass}>
+                Start time
+                <TimeInput
+                  value={form.start_time ?? ''}
+                  onChange={(v) => set('start_time', v)}
+                  className="mt-1"
+                />
+              </label>
+              <label className={modalLabelClass}>
+                End time
+                <TimeInput
+                  value={form.end_time ?? ''}
+                  onChange={(v) => set('end_time', v)}
+                  className="mt-1"
+                />
+              </label>
+            </div>
+            {durationText && (
+              <p className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-successSoft px-2.5 py-1 text-xs font-semibold text-success">
+                <Clock className="h-3.5 w-3.5" />
+                Duration {durationText}
+              </p>
+            )}
+          </FormSection>
+
+          <FormSection icon={MapPin} title="Site & weather">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className={modalLabelClass}>
+                Location
+                <input
+                  value={form.location ?? ''}
+                  onChange={(e) => set('location', e.target.value)}
+                  placeholder="Site address / landmark"
+                  className={`${inputClass} mt-1`}
+                />
+              </label>
+              <label className={modalLabelClass}>
+                Weather
+                <div className="relative mt-1">
+                  <Sun className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <input
+                    value={form.weather ?? ''}
+                    onChange={(e) => set('weather', e.target.value)}
+                    placeholder={t('siteVisits.weatherPlaceholder')}
+                    className={`${inputClass} pl-9`}
+                  />
+                </div>
+              </label>
+            </div>
+          </FormSection>
+
+          <FormSection icon={StickyNote} title="Notes">
             <label className={modalLabelClass}>
-              Start time
-              <TimeInput
-                value={form.start_time ?? ''}
-                onChange={(v) => set('start_time', v)}
-                className="mt-1"
+              Notes
+              <textarea
+                rows={3}
+                value={form.notes ?? ''}
+                onChange={(e) => set('notes', e.target.value)}
+                placeholder="Observations, measurements, decisions taken on site…"
+                className={`${inputClass} mt-1 h-auto py-2`}
               />
             </label>
-            <label className={modalLabelClass}>
-              End time
-              <TimeInput
-                value={form.end_time ?? ''}
-                onChange={(v) => set('end_time', v)}
-                className="mt-1"
+            <label className={`${modalLabelClass} mt-3`}>
+              Attendance notes
+              <textarea
+                rows={2}
+                value={form.attendance_notes ?? ''}
+                onChange={(e) => set('attendance_notes', e.target.value)}
+                placeholder={t('siteVisits.attendanceNotesPlaceholder')}
+                className={`${inputClass} mt-1 h-auto py-2`}
               />
             </label>
-          </div>
-          <label className={modalLabelClass}>
-            Notes
-            <textarea
-              rows={3}
-              value={form.notes ?? ''}
-              onChange={(e) => set('notes', e.target.value)}
-              className={`${inputClass} mt-1`}
-            />
-          </label>
-          <label className={modalLabelClass}>
-            Attendance Notes
-            <textarea
-              rows={2}
-              value={form.attendance_notes ?? ''}
-              onChange={(e) => set('attendance_notes', e.target.value)}
-              placeholder={t('siteVisits.attendanceNotesPlaceholder')}
-              className={`${inputClass} mt-1`}
-            />
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className={secondaryBtnClass}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={save.isPending || !form.purpose || !form.visit_date || form.project_id === 0}
-              className={primaryBtnClass}
-            >
-              {isEdit ? t('common.save') : t('siteVisits.logVisit')}
-            </button>
+          </FormSection>
+
+          <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted">Fields marked * are required.</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={onClose} className={secondaryBtnClass}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={save.isPending || !form.purpose || !form.visit_date || form.project_id === 0}
+                className={`${primaryBtnClass} min-w-[10rem]`}
+              >
+                {isEdit ? t('common.save') : t('siteVisits.logVisit')}
+              </button>
+            </div>
           </div>
         </form>
       </div>
