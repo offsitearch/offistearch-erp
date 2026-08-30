@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getClients } from '../../api/clients';
 import { getEmployees } from '../../api/employees';
+import { getProjectFinance } from '../../api/finance';
 import {
   addPhase,
   addTeamMember,
@@ -32,6 +33,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import {
   canAccess,
   formatCurrency,
+  formatINR,
   phaseStatusMeta,
   projectTypeLabel,
 } from '../../lib/constants';
@@ -68,6 +70,11 @@ export default function ProjectDetailPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const level = user?.org_level_code;
+
+  // Financial data is executive-only (L0/L1) per the financial access policy.
+  const canSeeMoney = canAccess(level, 'L1');
+
   const [tab, setTab] = useState<Tab>('overview');
   const [showAddMember, setShowAddMember] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -75,6 +82,11 @@ export default function ProjectDetailPage() {
   const [deletingPhaseId, setDeletingPhaseId] = useState<number | null>(null);
 
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => getProject(projectId) });
+  const projectFinance = useQuery({
+    queryKey: ['project-finance', projectId],
+    queryFn: () => getProjectFinance(projectId),
+    enabled: canSeeMoney,
+  });
   const employees = useQuery({
     queryKey: ['employees-options'],
     queryFn: () => getEmployees({ active_only: true, page_size: 100 }),
@@ -140,10 +152,7 @@ export default function ProjectDetailPage() {
 
   const data = project.data;
 
-  const level = user?.org_level_code;
-
   // Financial data is executive-only (L0/L1) per the financial access policy.
-  const canSeeMoney = canAccess(level, 'L1');
 
   const canManage =
     canAccess(level, 'L2') ||
@@ -234,6 +243,37 @@ export default function ProjectDetailPage() {
               </p>
             </div>
           </div>
+
+          {canSeeMoney && (
+            <div className="rounded-lg border border-border bg-surface p-5 shadow-card">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                  Finance <span className="normal-case text-muted/70">· in INR</span>
+                </p>
+                {projectFinance.isFetching && (
+                  <span className="text-xs text-muted/60">refreshing…</span>
+                )}
+              </div>
+              {projectFinance.isError ? (
+                <p className="mt-2 text-sm text-muted">Finance summary unavailable.</p>
+              ) : projectFinance.data ? (
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  {[
+                    { label: 'Invoiced', value: formatINR(projectFinance.data.invoiced), tone: 'text-info' },
+                    { label: 'Received', value: formatINR(projectFinance.data.received), tone: 'text-success' },
+                    { label: 'Outstanding', value: formatINR(projectFinance.data.outstanding), tone: 'text-warning' },
+                    { label: 'Expenses', value: formatINR(projectFinance.data.expenses), tone: 'text-danger' },
+                    { label: 'Profit', value: formatINR(projectFinance.data.profit), tone: 'text-ink' },
+                  ].map((stat) => (
+                    <div key={stat.label} className="rounded-md bg-surfaceWarm px-3 py-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted">{stat.label}</p>
+                      <p className={`mt-0.5 text-lg font-bold tabular-nums ${stat.tone}`}>{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-2 border-b border-border">
             {(

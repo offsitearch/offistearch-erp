@@ -187,7 +187,7 @@ export default function ClientProfilePage() {
                         </td>
                         <td className="px-4 py-3 text-muted">{p.progress_pct}%</td>
                         {canSeeMoney && (
-                          <td className="px-4 py-3 font-medium text-ink">{formatINR(p.studio_fee)}</td>
+                          <td className="px-4 py-3 font-medium text-ink">{formatINR(p.studio_fee_in_inr ?? p.studio_fee)}</td>
                         )}
                       </tr>
                     ))}

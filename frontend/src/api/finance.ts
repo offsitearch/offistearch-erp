@@ -7,6 +7,7 @@ import type {
   PaymentMethod,
   PayrollMonth,
   PayrollRun,
+  ProjectFinanceSummary,
 } from '../lib/types';
 
 export interface InvoiceListParams {
@@ -238,6 +239,12 @@ export async function getFinanceOverview(period: string, compare = false): Promi
   const { data } = await api.get<FinanceOverview>('/finance/overview', {
     params: { period, compare },
   });
+  return data;
+}
+
+/** Fetches a project's income snapshot (invoiced/received/outstanding/expenses/profit, in INR). */
+export async function getProjectFinance(projectId: number): Promise<ProjectFinanceSummary> {
+  const { data } = await api.get<ProjectFinanceSummary>(`/finance/projects/${projectId}/summary`);
   return data;
 }
 

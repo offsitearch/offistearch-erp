@@ -494,6 +494,9 @@ export interface ClientProjectSummary {
   progress_pct: string;
   budget: string | null;
   studio_fee: string | null;
+  budget_in_inr?: string | null;
+  studio_fee_in_inr?: string | null;
+  currency?: string | null;
 }
 
 export interface ClientInvoiceSummary {
@@ -516,6 +519,18 @@ export interface FinancialSummary {
   invoiced?: string;
   received?: string;
   outstanding?: string;
+}
+
+/** Per-project income snapshot aggregated to INR (GET /finance/projects/{id}/summary). */
+export interface ProjectFinanceSummary {
+  project_id: number;
+  invoiced: string;
+  received: string;
+  outstanding: string;
+  expenses: string;
+  profit: string;
+  invoice_count: number;
+  expense_count: number;
 }
 
 export interface Communication {

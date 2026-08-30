@@ -11,17 +11,35 @@ from decimal import Decimal
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.currency import inr_value
 from studioerp.enums import ClientType
 from studioerp.errors import ClientError
+from studioerp.money import q as _q
 from studioerp.platform.users import User
 from studioerp.rings.money.clients.models import Client, ClientCommunication
 from studioerp.rings.money.clients.schemas import ClientCreate, ClientUpdate, CommunicationIn
+from studioerp.rings.money.finance.models import Invoice, InvoiceStatus
 from studioerp.rings.work.projects.models import Project
-from studioerp.time import utc_now
+from studioerp.time import now_local, utc_now
 
 _ZERO = Decimal("0.00")
 
 FINANCIAL_CLIENT_FIELDS = ("budget_range",)
+
+
+def _effective_status(invoice: Invoice, today) -> str:
+    """Effective invoice status for the client-facing transactions list."""
+    if invoice.status == InvoiceStatus.CANCELLED:
+        return "cancelled"
+    if invoice.paid_amount >= invoice.total:
+        return "paid"
+    if invoice.paid_amount > 0:
+        return "partial"
+    if invoice.sent_at is not None and invoice.due_date < today:
+        return "overdue"
+    if invoice.sent_at is not None:
+        return "sent"
+    return "draft"
 
 
 def _client_dict(client: Client, include_financial: bool = True) -> dict:
@@ -160,12 +178,24 @@ async def get_profile(db: AsyncSession, client_id: int, include_financial: bool 
         referrer = await db.get(Client, client.referred_by)
         referred_name = referrer.name if referrer else None
 
+    today = now_local().date()
+
     project_rows = (
         (
             await db.execute(
                 select(Project)
                 .where(Project.client_id == client_id, Project.is_active.is_(True))
                 .order_by(Project.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    invoice_rows = (
+        (
+            await db.execute(
+                select(Invoice)
+                .where(Invoice.client_id == client_id, Invoice.status != InvoiceStatus.CANCELLED)
             )
         )
         .scalars()
@@ -183,6 +213,13 @@ async def get_profile(db: AsyncSession, client_id: int, include_financial: bool 
             "progress_pct": project.progress_pct,
             "budget": project.budget if include_financial else None,
             "studio_fee": project.studio_fee if include_financial else None,
+            "budget_in_inr": _q(inr_value(project.budget, project.exchange_rate))
+            if include_financial
+            else None,
+            "studio_fee_in_inr": _q(inr_value(project.studio_fee, project.exchange_rate))
+            if include_financial
+            else None,
+            "currency": project.currency if include_financial else None,
         }
         for project in project_rows
     ]
@@ -209,20 +246,53 @@ async def get_profile(db: AsyncSession, client_id: int, include_financial: bool 
         for comm, user_name in comm_rows
     ]
 
-    total_budget = sum((project.budget or _ZERO) for project in project_rows)
-    total_studio_fee = sum((project.studio_fee or _ZERO) for project in project_rows)
-
     return {
         "client": _client_dict(client, include_financial) | {"referred_name": referred_name},
         "projects": projects,
         "communications": communications,
+        "invoices": [
+            {
+                "id": inv.id,
+                "invoice_number": inv.invoice_number,
+                "invoice_date": inv.invoice_date,
+                "status": _effective_status(inv, today),
+                "currency": inv.currency,
+                "total": _q(inv.total),
+                "paid_amount": _q(inv.paid_amount),
+                "outstanding": _q(inv.total - inv.paid_amount),
+            }
+            for inv in invoice_rows
+        ]
+        if include_financial
+        else [],
         "financial_summary": {
             "total_projects": len(projects),
-            "total_budget": total_budget if include_financial else None,
-            "total_studio_fee": total_studio_fee if include_financial else None,
-            "invoiced": _ZERO if include_financial else None,
-            "received": _ZERO if include_financial else None,
-            "outstanding": _ZERO if include_financial else None,
+            "total_budget": _q(
+                sum((inr_value(p.budget, p.exchange_rate) for p in project_rows), _ZERO)
+            )
+            if include_financial
+            else None,
+            "total_studio_fee": _q(
+                sum((inr_value(p.studio_fee, p.exchange_rate) for p in project_rows), _ZERO)
+            )
+            if include_financial
+            else None,
+            "invoiced": _q(
+                sum((inr_value(i.total, i.exchange_rate) for i in invoice_rows), _ZERO)
+            )
+            if include_financial
+            else None,
+            "received": _q(
+                sum((inr_value(i.paid_amount, i.exchange_rate) for i in invoice_rows), _ZERO)
+            )
+            if include_financial
+            else None,
+            "outstanding": _q(
+                sum((inr_value(i.total - i.paid_amount, i.exchange_rate) for i in invoice_rows), _ZERO)
+            )
+            if include_financial
+            else None,
+            "invoice_count": len(invoice_rows) if include_financial else None,
         },
     }
 

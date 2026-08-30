@@ -12,12 +12,12 @@ from pydantic import ValidationError
 import studioerp.platform.orgstructure.models as _org  # noqa: F401
 import studioerp.platform.users as _users  # noqa: F401
 
-from studioerp.enums import ClientType, DealStage, InvoiceStatus
+from studioerp.enums import ClientType, DealStage, ExpenseStatus, InvoiceStatus
 from studioerp.rings.money.clients.models import Client
 from studioerp.rings.money.clients.service import _client_dict
 from studioerp.rings.money.clients.schemas import ClientCreate
 from studioerp.rings.money.finance import service as fin
-from studioerp.rings.money.finance.models import Invoice, InvoiceItem
+from studioerp.rings.money.finance.models import Expense, Invoice, InvoiceItem
 from studioerp.rings.money.finance.schemas import (
     ExpenseCreate,
     InvoiceCreate,
@@ -252,5 +252,124 @@ class TestMoneyRoutes:
             "/api/v1/invoices/{invoice_id}/payment",
             "/api/v1/expenses/{expense_id}/approve",
             "/api/v1/clients/{client_id}/communications",
+            "/api/v1/finance/projects/{project_id}/summary",
         ):
             assert expected in paths, f"missing route {expected}"
+
+
+# ── project_financials (INR-aggregated per-project snapshot) ───────────────
+
+class TestProjectFinancials:
+    @staticmethod
+    def _inv(total: str, paid: str, rate: str, status: InvoiceStatus = InvoiceStatus.SENT):
+        inv = Invoice()
+        inv.project_id = 1
+        inv.total = Decimal(total)
+        inv.paid_amount = Decimal(paid)
+        inv.exchange_rate = Decimal(rate)
+        inv.status = status
+        return inv
+
+    @staticmethod
+    def _expense(amount: str, rate: str, status: ExpenseStatus = ExpenseStatus.APPROVED):
+        exp = Expense()
+        exp.project_id = 1
+        exp.amount = Decimal(amount)
+        exp.exchange_rate = Decimal(rate)
+        exp.status = status
+        return exp
+
+    @staticmethod
+    def _run(invoices, expenses, project_missing: bool = False):
+        import asyncio
+
+        from unittest.mock import AsyncMock
+
+        from studioerp.errors import FinanceError
+        from studioerp.rings.work.projects.models import Project
+
+        class _Scalars:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def all(self):
+                return self._rows
+
+        class _FakeResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def scalars(self):
+                return _Scalars(self._rows)
+
+        db = AsyncMock()
+        if project_missing:
+            db.get = AsyncMock(return_value=None)
+            try:
+                asyncio.run(fin.project_financials(db, 1))
+            except FinanceError as exc:
+                return exc
+            raise AssertionError("expected FinanceError for a missing project")
+        db.get = AsyncMock(return_value=Project(id=1, is_active=True))
+        db.execute = AsyncMock(side_effect=[_FakeResult(invoices), _FakeResult(expenses)])
+        return asyncio.run(fin.project_financials(db, 1))
+
+    def test_missing_project_raises(self):
+        exc = self._run([], [], project_missing=True)
+        assert exc.status_code == 404
+
+    def test_empty_project_zero_snapshot(self):
+        data = self._run([], [])
+        assert data == {
+            "project_id": 1,
+            "invoiced": Decimal("0.00"),
+            "received": Decimal("0.00"),
+            "outstanding": Decimal("0.00"),
+            "expenses": Decimal("0.00"),
+            "profit": Decimal("0.00"),
+            "invoice_count": 0,
+            "expense_count": 0,
+        }
+
+    def test_inr_invoices_pass_through(self):
+        data = self._run(
+            [self._inv("1000.00", "400.00", "1")],
+            [self._expense("250.00", "1")],
+        )
+        assert data["invoiced"] == Decimal("1000.00")
+        assert data["received"] == Decimal("400.00")
+        assert data["outstanding"] == Decimal("600.00")
+        assert data["expenses"] == Decimal("250.00")
+        assert data["profit"] == Decimal("150.00")
+
+    def test_foreign_currency_converted_at_stored_rate(self):
+        data = self._run(
+            [
+                self._inv("1000.00", "0.00", "83.4"),
+                self._inv("500.00", "500.00", "83.4"),
+            ],
+            [],
+        )
+        assert data["invoiced"] == Decimal("125100.00")
+        assert data["received"] == Decimal("41700.00")
+        assert data["outstanding"] == Decimal("83400.00")
+
+    def test_received_past_total_is_not_negative(self):
+        # Marked-paid invoices can carry paid == total; outstanding must floor at 0.
+        data = self._run([self._inv("1000.00", "1000.00", "1")], [])
+        assert data["outstanding"] == Decimal("0.00")
+
+    def test_profit_is_received_minus_expenses(self):
+        data = self._run(
+            [self._inv("5000.00", "3000.00", "1")],
+            [self._expense("400.00", "1"), self._expense("600.00", "1")],
+        )
+        assert data["profit"] == Decimal("2000.00")
+
+    def test_invoice_and_expense_counts(self):
+        data = self._run(
+            [self._inv("100.00", "0.00", "1"), self._inv("200.00", "0.00", "1")],
+            [self._expense("50.00", "1")],
+        )
+        assert data["invoice_count"] == 2
+        assert data["expense_count"] == 1

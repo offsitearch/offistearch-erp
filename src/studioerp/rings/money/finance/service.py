@@ -673,3 +673,52 @@ async def finance_overview(db: AsyncSession, period: str, compare: bool = False)
         previous = _previous_bounds(period)
         result["previous"] = await _overview_metrics(db, *previous) if previous else None
     return result
+
+
+async def project_financials(db: AsyncSession, project_id: int) -> dict:
+    """Per-project income snapshot, aggregated to INR at each item's stored rate.
+
+    Invoices are matched by the plain ``project_id`` column; cancelled invoices
+    are excluded. Expenses count only APPROVED ones, matching the finance
+    dashboard. ``profit`` = received − expenses (un-invoiced budget/studio-fee
+    are project-plan figures, not cash, so they stay out of this).
+    """
+    project = await db.get(Project, project_id)
+    if project is None or not project.is_active:
+        raise FinanceError("Project not found", 404)
+
+    invoice_rows = (
+        (
+            await db.execute(
+                select(Invoice)
+                .where(Invoice.project_id == project_id, Invoice.status != InvoiceStatus.CANCELLED)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    invoiced = sum((inr_value(i.total, i.exchange_rate) for i in invoice_rows), Decimal("0"))
+    received = sum((inr_value(i.paid_amount, i.exchange_rate) for i in invoice_rows), Decimal("0"))
+
+    expense_rows = (
+        (
+            await db.execute(
+                select(Expense)
+                .where(Expense.project_id == project_id, Expense.status == ExpenseStatus.APPROVED)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    expenses = sum((inr_value(e.amount, e.exchange_rate) for e in expense_rows), Decimal("0"))
+
+    return {
+        "project_id": project_id,
+        "invoiced": _q(invoiced),
+        "received": _q(received),
+        "outstanding": _q(invoiced - received),
+        "expenses": _q(expenses),
+        "profit": _q(received - expenses),
+        "invoice_count": len(invoice_rows),
+        "expense_count": len(expense_rows),
+    }

@@ -115,6 +115,9 @@ class ClientProjectSummary(BaseModel):
     progress_pct: Decimal
     budget: Decimal | None
     studio_fee: Decimal | None
+    budget_in_inr: Decimal | None = None
+    studio_fee_in_inr: Decimal | None = None
+    currency: str | None = None
 
 
 class CommunicationIn(BaseModel):
@@ -141,13 +144,26 @@ class FinancialSummary(BaseModel):
     total_projects: int = 0
     total_budget: Decimal | None = None
     total_studio_fee: Decimal | None = None
+    invoice_count: int | None = None
     invoiced: Decimal | None = None
     received: Decimal | None = None
     outstanding: Decimal | None = None
+
+
+class ClientInvoiceSummary(BaseModel):
+    id: int
+    invoice_number: str
+    invoice_date: date
+    status: str
+    currency: str
+    total: Decimal
+    paid_amount: Decimal
+    outstanding: Decimal
 
 
 class ClientProfileOut(BaseModel):
     client: ClientOut
     projects: list[ClientProjectSummary] = []
     communications: list[CommunicationOut] = []
+    invoices: list[ClientInvoiceSummary] = []
     financial_summary: FinancialSummary

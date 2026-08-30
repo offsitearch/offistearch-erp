@@ -80,6 +80,18 @@ async def finance_overview(
     return await finance_service.finance_overview(db, period, compare=compare)
 
 
+@finance_router.get("/projects/{project_id}/summary")
+async def project_finance_summary(
+    current_user: Annotated[User, Depends(require_financial_access())],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    project_id: int,
+) -> dict:
+    try:
+        return await finance_service.project_financials(db, project_id)
+    except FinanceError as exc:
+        raise _domain_error(exc) from exc
+
+
 @finance_router.get("/my-expenses", response_model=PaginatedResponse[ExpenseOut])
 async def list_my_expenses(
     current_user: Annotated[User, Depends(get_current_user)],
