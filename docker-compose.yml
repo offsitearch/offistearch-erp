@@ -57,6 +57,7 @@ services:
       - "${FRONTEND_PORT:-5173}:5173"
     volumes:
       - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
       - ./frontend/index.html:/app/index.html
       - ./frontend/vite.config.ts:/app/vite.config.ts
     depends_on:
