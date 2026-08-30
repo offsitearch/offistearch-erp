@@ -1,0 +1,13 @@
+# Force LF line endings for files that must stay LF to work in the Linux
+# container (a CRLF entrypoint breaks the container's `sh`).
+*.sh text eol=lf
+docker-entrypoint text eol=lf
+
+# Python/text sources: normalize to LF in the repo.
+*.py text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.md text eol=lf

@@ -14,12 +14,12 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_backend_dir = Path(__file__).resolve().parent.parent.parent.parent  # project/backend
+_repo_root = Path(__file__).resolve().parents[2]  # studioerp-v2/ (repo root)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(_backend_dir / ".env", _backend_dir.parent / ".env"),
+        env_file=(_repo_root / ".env",),
         env_file_encoding="utf-8",
         extra="ignore",
     )
