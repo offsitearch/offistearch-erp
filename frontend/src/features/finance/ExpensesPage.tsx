@@ -1,5 +1,5 @@
 ﻿import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Download, Loader2, Plus, Receipt, X } from 'lucide-react';
+import { Banknote, Building2, Check, Download, Loader2, Paperclip, Plus, Receipt, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { getProjects } from '../../api/projects';
 import {
@@ -7,10 +7,10 @@ import {
   createExpense,
   downloadExpenseReceipt,
   getExpenses,
-  uploadExpenseReceipt,
 } from '../../api/finance';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LogoLoader } from '../../components/LogoLoader';
+import FormSection from '../../components/ui/FormSection';
 import DatePicker from '../../components/ui/DatePicker';
 import CurrencyInput from '../../components/ui/CurrencyInput';
 import { useToast } from '../../components/Toast';
@@ -28,7 +28,15 @@ import { useTranslation } from 'react-i18next';
 import { inputClass, selectClass, primaryBtnClass, secondaryBtnClass, modalLabelClass } from '../../lib/styles';
 
 function errDetail(err: unknown): string | null {
-  return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? null;
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => (typeof d === 'object' && d && 'msg' in d ? String((d as { msg: string }).msg) : JSON.stringify(d)))
+      .filter(Boolean)
+      .join('; ');
+  }
+  return detail == null ? null : JSON.stringify(detail);
 }
 
 const STATUS_TABS: { key: string; label: string }[] = [
@@ -228,15 +236,9 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
         paid_by: paidBy || undefined,
         currency,
         exchange_rate: Number(exchangeRate) > 0 ? Number(exchangeRate) : 1,
+        file,
       }),
-    onSuccess: async (expense) => {
-      if (file) {
-        try {
-          await uploadExpenseReceipt(expense.id, file);
-        } catch {
-          /* receipt is optional */
-        }
-      }
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
       queryClient.invalidateQueries({ queryKey: ['finance-overview'] });
       toast('Expense saved', 'success');
@@ -254,41 +256,42 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navyDark/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-surface p-6 shadow-overlay">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-ink">Add Expense</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-muted hover:bg-surfaceWarm">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-overlay">
+        <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange/10 text-orange">
+              <Receipt className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-ink">Add Expense</h2>
+              <p className="text-xs text-muted">Booked straight as approved — it counts in the dashboard immediately.</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1.5 text-muted hover:bg-surfaceWarm hover:text-ink">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <form onSubmit={submit} className="mt-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <label className={modalLabelClass}>
-              Category
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
-                className={`${selectClass} mt-1`}
-              >
-                {EXPENSE_CATEGORY_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {expenseCategoryLabel(c)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={modalLabelClass}>
-              Amount
-              <CurrencyInput
-                value={amount}
-                onChange={setAmount}
-                currency={currency}
-                onCurrencyChange={setCurrency}
-                className="mt-1"
-              />
-            </label>
-            {currency !== 'INR' && (
+
+        <form onSubmit={submit} className="mt-5 space-y-6">
+          <FormSection icon={Banknote} title="Amount">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className={modalLabelClass}>
+                Amount *
+                <CurrencyInput
+                  value={amount}
+                  onChange={setAmount}
+                  currency={currency}
+                  onCurrencyChange={setCurrency}
+                  className="mt-1"
+                />
+              </label>
+              <label className={modalLabelClass}>
+                Date
+                <DatePicker value={date} onChange={setDate} className="mt-1" />
+              </label>
+            </div>
+            {currency !== 'INR' && (
+              <label className={`${modalLabelClass} mt-3`}>
                 1 {currency} → INR
                 <input
                   type="number"
@@ -301,12 +304,48 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
                 />
               </label>
             )}
-            <label className={modalLabelClass}>
-              Date
-              <DatePicker value={date} onChange={setDate} className="mt-1" />
+          </FormSection>
+
+          <FormSection icon={Receipt} title="Category & description">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className={modalLabelClass}>
+                Category
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+                  className={`${selectClass} mt-1`}
+                >
+                  {EXPENSE_CATEGORY_OPTIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {expenseCategoryLabel(c)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={modalLabelClass}>
+                Paid by
+                <input
+                  value={paidBy}
+                  onChange={(e) => setPaidBy(e.target.value)}
+                  placeholder="Person / company"
+                  className={`${inputClass} mt-1`}
+                />
+              </label>
+            </div>
+            <label className={`${modalLabelClass} mt-3`}>
+              Description
+              <textarea
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className={`${inputClass} mt-1`}
+              />
             </label>
+          </FormSection>
+
+          <FormSection icon={Building2} title="Project & receipt" hint="Both optional — attach a photo or PDF of the bill.">
             <label className={modalLabelClass}>
-              Project (optional)
+              Project
               <select
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value === '' ? '' : Number(e.target.value))}
@@ -320,34 +359,22 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
             </label>
-          </div>
-          <label className={modalLabelClass}>
-            Description
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className={`${inputClass} mt-1`}
-            />
-          </label>
-          <label className={modalLabelClass}>
-            Paid by
-            <input
-              value={paidBy}
-              onChange={(e) => setPaidBy(e.target.value)}
-              placeholder="Person / company"
-              className={`${inputClass} mt-1`}
-            />
-          </label>
-          <label className={modalLabelClass}>
-            Receipt (optional)
-            <input
-              type="file"
-              accept="image/*,.pdf"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className={`${inputClass} mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-surfaceWarm file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:bg-border`}
-            />
-          </label>
+            <label className={`${modalLabelClass} mt-3`}>
+              Receipt
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className={`${inputClass} mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-surfaceWarm file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:bg-border`}
+              />
+            </label>
+            {file && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted">
+                <Paperclip className="h-3 w-3" />
+                <span className="truncate">{file.name}</span>
+              </p>
+            )}
+          </FormSection>
 
           {errDetail(create.error) && (
             <div className="rounded-lg bg-dangerSoft px-3 py-2 text-sm text-danger">
@@ -355,18 +382,17 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className={secondaryBtnClass}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={create.isPending || !amount}
-              className={primaryBtnClass}
-            >
-              {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save Expense
-            </button>
+          <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted">Amount must be more than zero.</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={onClose} className={secondaryBtnClass}>
+                Cancel
+              </button>
+              <button type="submit" disabled={create.isPending || !amount} className={`${primaryBtnClass} min-w-[10rem]`}>
+                {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Expense
+              </button>
+            </div>
           </div>
         </form>
       </div>

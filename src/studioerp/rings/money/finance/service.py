@@ -506,7 +506,11 @@ async def list_expenses(
 
 
 async def create_expense(
-    db: AsyncSession, payload: ExpenseCreate, receipt_content: bytes | None = None, receipt_suffix: str = ""
+    db: AsyncSession,
+    payload: ExpenseCreate,
+    admin: User | None = None,
+    receipt_content: bytes | None = None,
+    receipt_suffix: str = "",
 ) -> dict:
     if payload.project_id is not None:
         project = await db.get(Project, payload.project_id)
@@ -530,7 +534,9 @@ async def create_expense(
         project_id=payload.project_id,
         paid_by=payload.paid_by,
         receipt_path=receipt_path,
-        status=ExpenseStatus.PENDING,
+        status=ExpenseStatus.APPROVED if admin is not None else ExpenseStatus.PENDING,
+        approved_by=admin.id if admin is not None else None,
+        approved_at=utc_now() if admin is not None else None,
         currency=payload.currency,
         exchange_rate=_q(payload.exchange_rate),
     )

@@ -1,4 +1,4 @@
-import { UPLOAD_TIMEOUT_MS, api } from './client';
+import { api } from './client';
 import type {
   Expense,
   FinanceOverview,
@@ -74,6 +74,7 @@ export interface ExpenseCreateInput {
   paid_by?: string;
   currency?: string;
   exchange_rate?: number;
+  file?: File | null;
 }
 
 /** Fetches a filtered list of expenses. */
@@ -82,26 +83,26 @@ export async function getExpenses(params: { status?: string; category?: string }
   return data.items ?? [];
 }
 
-/** Creates a new expense record. */
+/** Creates a new expense record. Mounted as multipart (the API takes form fields
+ *  and an optional receipt file in the same request). */
 export async function createExpense(payload: ExpenseCreateInput): Promise<Expense> {
-  const { data } = await api.post<Expense>('/expenses', payload);
+  const form = new FormData();
+  form.append('category', payload.category);
+  form.append('amount', String(payload.amount));
+  if (payload.description) form.append('description', payload.description);
+  if (payload.expense_date) form.append('expense_date', payload.expense_date);
+  if (payload.project_id) form.append('project_id', String(payload.project_id));
+  if (payload.paid_by) form.append('paid_by', payload.paid_by);
+  if (payload.currency) form.append('currency', payload.currency);
+  form.append('exchange_rate', String(payload.exchange_rate ?? 1));
+  if (payload.file) form.append('file', payload.file);
+  const { data } = await api.post<Expense>('/expenses', form);
   return data;
 }
 
-/** Approves or rejects an expense record. */
+/** Approves or rejects an expense record (staff my-expense claims). */
 export async function approveExpense(id: number, approve: boolean): Promise<Expense> {
   const { data } = await api.patch<Expense>(`/expenses/${id}/approve`, { approve });
-  return data;
-}
-
-/** Uploads a receipt file for an expense. */
-export async function uploadExpenseReceipt(id: number, file: File): Promise<Expense> {
-  const form = new FormData();
-  form.append('file', file);
-  const { data } = await api.post<Expense>(`/expenses/${id}/receipt`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: UPLOAD_TIMEOUT_MS,
-  });
   return data;
 }
 

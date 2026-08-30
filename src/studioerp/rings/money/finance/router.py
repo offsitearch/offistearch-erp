@@ -1,8 +1,11 @@
 """Finance routes: /finance summary, /invoices, /expenses (ring r4/money).
 
 All financial data is restricted to the executive band (L0 CEO / L1 Director)
-via ``require_financial_access``. My-expenses are open to any staff member for
-their own reimbursement claims.
+via ``require_financial_access``. Expenses under ``/expenses`` are booked
+directly by that band — they are APPROVED at creation (no approval step), so
+they count in the dashboard immediately. ``/my-expenses`` stays open to any
+staff member for their own reimbursement claims, and those go through the
+L0/L1 approval flow.
 
 Deferred (storage/PDF/email abstractions pending): invoice PDF download, receipt
 upload/download, and the send-invoice email.
@@ -303,7 +306,7 @@ async def create_expense(
     )
     try:
         result = await finance_service.create_expense(
-            db, payload, receipt_content=receipt_content, receipt_suffix=receipt_suffix
+            db, payload, admin=current_user, receipt_content=receipt_content, receipt_suffix=receipt_suffix
         )
     except FinanceError as exc:
         raise _domain_error(exc) from exc
