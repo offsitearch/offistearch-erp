@@ -176,7 +176,6 @@ export async function uploadEmployeeDocument(
   form.append('file', file);
   const { data } = await api.post<EmployeeDocument>(`/employees/${id}/documents`, form, {
     params: { doc_type: docType },
-    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: UPLOAD_TIMEOUT_MS,
   });
   return data;

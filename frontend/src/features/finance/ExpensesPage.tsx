@@ -221,7 +221,6 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [projectId, setProjectId] = useState<number | ''>('');
-  const [paidBy, setPaidBy] = useState('');
   const [file, setFile] = useState<File | null>(null);
 
   const projects = useQuery({ queryKey: ['projects-options'], queryFn: () => getProjects({ page_size: 100 }) });
@@ -234,7 +233,6 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
         description: description || undefined,
         expense_date: date,
         project_id: projectId === '' ? null : Number(projectId),
-        paid_by: paidBy || undefined,
         currency,
         exchange_rate: Number(exchangeRate) > 0 ? Number(exchangeRate) : 1,
         file,
@@ -321,39 +319,29 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
             </div>
           </FormSection>
 
-          <FormSection icon={Receipt} title="Category & description">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className={modalLabelClass}>
-                Category
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
-                  className={`${selectClass} mt-1`}
-                >
-                  {EXPENSE_CATEGORY_OPTIONS.map((c) => (
-                    <option key={c} value={c}>
-                      {expenseCategoryLabel(c)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={modalLabelClass}>
-                Paid by
-                <input
-                  value={paidBy}
-                  onChange={(e) => setPaidBy(e.target.value)}
-                  placeholder="Person / company"
-                  className={`${inputClass} mt-1`}
-                />
-              </label>
-            </div>
-            <label className={`${modalLabelClass} mt-3`}>
+          <FormSection icon={Receipt} title="Details">
+            <label className={modalLabelClass}>
+              Category
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+                className={`${selectClass} mt-1`}
+              >
+                {EXPENSE_CATEGORY_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {expenseCategoryLabel(c)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={`${modalLabelClass} mt-4`}>
               Description
               <textarea
-                rows={2}
+                rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className={`${inputClass} mt-1`}
+                placeholder="What did this expense cover? e.g. Cab for the client site visit"
+                className={`${inputClass} mt-1 h-auto resize-y py-2.5 leading-relaxed`}
               />
             </label>
           </FormSection>

@@ -8,7 +8,6 @@ export const UPLOAD_TIMEOUT_MS = 120_000;
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
-  headers: { 'Content-Type': 'application/json' },
   timeout: DEFAULT_TIMEOUT_MS,
   withCredentials: true,
 });
