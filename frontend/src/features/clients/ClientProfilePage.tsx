@@ -544,11 +544,11 @@ function EditClientModal({
           </div>
           <label className="block">
             <span className={modalLabelClass}>Address</span>
-            <textarea value={form.address} onChange={(e) => set('address', e.target.value)} rows={2} className={`${modalFieldClass} h-auto py-2`} />
+            <textarea value={form.address} onChange={(e) => set('address', e.target.value)} rows={2} className={`${modalFieldClass} min-h-24 resize-y py-2`} />
           </label>
           <label className="block">
             <span className={modalLabelClass}>Notes</span>
-            <textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} rows={2} className={`${modalFieldClass} h-auto py-2`} />
+            <textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} rows={2} className={`${modalFieldClass} min-h-24 resize-y py-2`} />
           </label>
           <div className="grid gap-4 sm:grid-cols-3">
             <label className="block">
@@ -679,7 +679,7 @@ function CommunicationModal({
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Notes"
             rows={3}
-            className={`${modalFieldClass} h-auto py-2`}
+            className={`${modalFieldClass} min-h-24 resize-y py-2`}
           />
           <label className="block">
             <span className={modalLabelClass}>Date</span>

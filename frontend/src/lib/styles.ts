@@ -40,8 +40,8 @@ export const labelClass = 'mb-1 block text-xs font-medium text-muted';
 /** Label inside a modal form */
 export const modalLabelClass = labelClass;
 
-/** Field wrapper inside a modal */
-export const modalFieldClass = labelClass;
+/** Input / select / textarea inside a modal form */
+export const modalFieldClass = inputClass;
 
 /* ── Buttons ──────────────────────────────────────────────────── */
 

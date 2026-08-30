@@ -68,7 +68,7 @@ export default function EditTaskForm({
         onChange={(e) => set('description', e.target.value)}
         placeholder="Description"
         rows={3}
-        className={`${modalFieldClass} h-auto py-2`}
+        className={`${modalFieldClass} min-h-24 resize-y py-2`}
       />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block">

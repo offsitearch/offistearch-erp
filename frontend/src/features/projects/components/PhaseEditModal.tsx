@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import type { PhaseStatus } from '../../../lib/types';
 import { phaseStatusMeta } from '../../../lib/constants';
 import { parseIndianCurrencyInput, formatIndianCurrencyInput } from '../../../lib/currencyInput';
-import { primaryBtnClass, secondaryBtnClass, modalFieldClass, modalLabelClass } from '../../../lib/styles';
+import { primaryBtnClass, secondaryBtnClass, modalFieldClass, modalLabelClass, selectClass } from '../../../lib/styles';
 import DatePicker from '../../../components/ui/DatePicker';
 import CurrencyInput from '../../../components/ui/CurrencyInput';
 
@@ -69,7 +69,7 @@ export default function PhaseEditModal({
           </label>
           <label className="block">
             <span className={modalLabelClass}>Status</span>
-            <select value={status} onChange={(e) => setStatus(e.target.value as PhaseStatus)} className={modalFieldClass}>
+            <select value={status} onChange={(e) => setStatus(e.target.value as PhaseStatus)} className={selectClass}>
               {PHASE_STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>
                   {phaseStatusMeta(s).label}
