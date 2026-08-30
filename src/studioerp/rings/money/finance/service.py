@@ -17,7 +17,7 @@ from studioerp.currency import inr_value
 from studioerp.enums import ExpenseStatus, InvoiceStatus, PaymentMethod
 from studioerp.errors import FinanceError
 from studioerp.money import q as _q
-from studioerp.pdf import invoice_pdf
+from studioerp.invoice_generator import generate_invoice_pdf
 from studioerp.platform.settings.service import get_studio_info
 from studioerp.platform.users import User
 from studioerp.rings.money.clients.models import Client
@@ -389,30 +389,32 @@ async def build_invoice_pdf(db: AsyncSession, data: dict, studio_info: dict | No
         data["tax_amount"],
     )
     payment_details = {k: studio_info[k] for k in _PAYMENT_SETTING_KEYS if studio_info.get(k)}
+    # Per-invoice terms win; otherwise fall back to the studio-wide default.
     terms = data.get("terms") or studio_info.get("default_terms")
-    return invoice_pdf(
-        invoice_number=data["invoice_number"],
-        client_name=data["client_name"] or f"Client #{data['client_id']}",
-        client_address=data.get("client_address"),
-        client_gstin=data.get("client_gstin"),
-        project_code=data.get("project_code"),
-        project_name=data.get("project_name"),
-        invoice_date=data["invoice_date"],
-        due_date=data["due_date"],
-        status=data["status"],
-        currency=data.get("currency") or "INR",
-        tax_percent=data["tax_percent"],
-        tax_amount=data["tax_amount"],
-        items=data["items"],
-        subtotal=data["subtotal"],
-        total=data["total"],
-        paid_amount=data["paid_amount"],
-        notes=data.get("notes"),
-        terms=terms,
-        studio_info=studio_info,
-        tax_lines=tax_lines or None,
-        payment_details=payment_details or None,
-    )
+
+    return generate_invoice_pdf({
+        "invoice_number": data["invoice_number"],
+        "client_name": data["client_name"] or f"Client #{data['client_id']}",
+        "client_address": data.get("client_address"),
+        "client_gstin": data.get("client_gstin"),
+        "project_code": data.get("project_code"),
+        "project_name": data.get("project_name"),
+        "invoice_date": data["invoice_date"],
+        "due_date": data["due_date"],
+        "status": data["status"],
+        "currency": data.get("currency") or "INR",
+        "items": data["items"],
+        "subtotal": data["subtotal"],
+        "tax_percent": data["tax_percent"],
+        "tax_amount": data["tax_amount"],
+        "total": data["total"],
+        "paid_amount": data["paid_amount"],
+        "notes": data.get("notes"),
+        "terms": terms,
+        "studio_info": studio_info,
+        "tax_lines": tax_lines or None,
+        "payment_details": payment_details or None,
+    })
 
 
 async def record_payment(

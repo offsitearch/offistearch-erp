@@ -1,11 +1,9 @@
 """Attendance service (r2/people). Ported from ``app/modules/attendance/service.py``.
 
-Clock-in/out, bulk attendance marking, monthly summaries, and attendance reports.
-Cross-module contract :func:`mark_on_leave` is owned here so sibling people modules
+Clock-in/out, bulk attendance marking, monthly summaries, and attendance
+reports (JSON rows plus professional XLSX / CSV export). Cross-module
+contract :func:`mark_on_leave` is owned here so sibling people modules
 (leave) never touch the ``attendance`` table raw.
-
-Deferred: professional XLSX/CSV report export (no kernel xlsx util yet; export/
-reporting phase later).
 """
 
 from collections import Counter
@@ -25,6 +23,7 @@ from studioerp.rings.people.attendance.models import Attendance
 from studioerp.rings.people.attendance.repository import attendance_repository
 from studioerp.rings.people.attendance.schemas import CheckInRequest, CheckOutRequest
 from studioerp.time import now_local, to_local
+from studioerp.xlsx import write_xlsx
 
 
 def _minutes_between(after: time, before: time) -> int:
@@ -300,6 +299,154 @@ async def report_rows(
     stmt = stmt.order_by(Attendance.date, User.name)
     result = await db.execute(stmt)
     return [_row_from(att, user, dept) for att, user, dept in result.all()]
+
+
+def attendance_xlsx(rows: list[dict], from_date, to_date) -> bytes:
+    """Professional XLSX for attendance report with summary and detail."""
+    from collections import Counter
+
+    today_str = now_local().date().isoformat()
+    period_label = f"{from_date} to {to_date}"
+
+    status_counts = Counter(r["status"] for r in rows)
+    total_late = sum(r["late_minutes"] or 0 for r in rows)
+    total_hours = sum(float(r["total_hours"] or 0) for r in rows)
+    unique_employees = len({r["user_id"] for r in rows})
+    total_records = len(rows)
+
+    # ── Summary sheet ───────────────────────────────────────────
+    num_cols = 6
+    kpi_items = [
+        ("Period", period_label),
+        ("Total Records", str(total_records)),
+        ("Unique Employees", str(unique_employees)),
+        ("Total Hours", f"{total_hours:,.1f}"),
+        ("Total Late (mins)", str(total_late)),
+    ]
+    status_items = [
+        (s.replace("_", " ").title(), str(status_counts.get(s, 0)))
+        for s in ("present", "late", "half_day", "work_from_home", "on_leave", "absent")
+    ]
+
+    extra_before: list[list[tuple[str, str | None]]] = [
+        [("Attendance Report", "title")] + [("", None)] * (num_cols - 1),
+        [(f"Generated: {today_str}", "subtitle")] + [("", None)] * (num_cols - 1),
+        [("", None)] * num_cols,
+        [("Overview", "section")] + [("", None)] * (num_cols - 1),
+    ]
+    for label, value in kpi_items:
+        extra_before.append(
+            [(label, "summary_label"), (str(value), "summary_value")]
+            + [("", None)] * (num_cols - 2)
+        )
+    extra_before.append([("", None)] * num_cols)
+    extra_before.append([("Status Breakdown", "section")] + [("", None)] * (num_cols - 1))
+    for label, value in status_items:
+        extra_before.append(
+            [(label, "summary_label"), (str(value), "summary_value")]
+            + [("", None)] * (num_cols - 2)
+        )
+
+    # ── Detail sheet ────────────────────────────────────────────
+    columns = [
+        "Date", "Employee ID", "Name", "Department", "Designation",
+        "Status", "Check In", "Check Out", "Late (min)", "Hours", "OT Hours",
+    ]
+    col_styles = [
+        "text_border", "text_border", "text_border", "text_border", "text_border",
+        "text_border", "text_border", "text_border", "integer_border", "decimal1_border", "decimal1_border",
+    ]
+    alt_col_styles = [
+        "text_alt", "text_alt", "text_alt", "text_alt", "text_alt",
+        "text_alt", "text_alt", "text_alt", "integer_alt", "decimal1_alt", "decimal1_alt",
+    ]
+
+    detail_rows = [
+        [
+            str(row["date"]),
+            row["employee_id"] or "",
+            row["user_name"],
+            row["department"] or "—",
+            row["designation"] or "—",
+            row["status"],
+            row["check_in_time"].strftime("%H:%M") if row["check_in_time"] else "",
+            row["check_out_time"].strftime("%H:%M") if row["check_out_time"] else "",
+            row["late_minutes"] or 0,
+            float(row["total_hours"] or 0),
+            float(row["overtime_hours"] or 0),
+        ]
+        for row in rows
+    ]
+
+    summary_sheet: dict = {
+        "name": "Summary",
+        "columns": ["", "", "", "", "", ""],
+        "rows": [],
+        "extra_rows_before": extra_before,
+        "freeze_row": 0,
+    }
+
+    detail_sheet: dict = {
+        "name": "Attendance",
+        "columns": columns,
+        "rows": detail_rows,
+        "col_styles": col_styles,
+        "alt_col_styles": alt_col_styles,
+        "freeze_row": 1,
+    }
+
+    return write_xlsx([summary_sheet, detail_sheet])
+
+
+def attendance_csv(rows: list[dict], from_date, to_date) -> str:
+    """Attractive CSV for attendance report with summary header."""
+    from collections import Counter
+    import csv
+    import io
+
+    today_str = now_local().date().isoformat()
+    status_counts = Counter(r["status"] for r in rows)
+    total_hours = sum(float(r["total_hours"] or 0) for r in rows)
+    total_overtime = sum(float(r["overtime_hours"] or 0) for r in rows)
+    total_late = sum(r["late_minutes"] or 0 for r in rows)
+    unique_employees = len({r["user_id"] for r in rows})
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Attendance Report"])
+    writer.writerow([f"{from_date} to {to_date}  |  Generated: {today_str}"])
+    writer.writerow([])
+    writer.writerow(["Total Records", len(rows)])
+    writer.writerow(["Unique Employees", unique_employees])
+    writer.writerow(["Total Hours", f"{total_hours:,.1f}"])
+    writer.writerow(["Total Overtime (hrs)", f"{total_overtime:,.1f}"])
+    writer.writerow(["Total Late (mins)", total_late])
+    writer.writerow([])
+    for s in ("present", "late", "half_day", "work_from_home", "on_leave", "absent"):
+        writer.writerow([s.replace("_", " ").title(), status_counts.get(s, 0)])
+    writer.writerow([])
+    writer.writerow([])
+    columns = [
+        "Date", "Employee ID", "Name", "Department", "Designation",
+        "Status", "Check In", "Check Out", "Late (min)", "Hours", "OT Hours",
+    ]
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([
+            str(row["date"]),
+            row["employee_id"] or "",
+            row["user_name"],
+            row["department"] or "—",
+            row["designation"] or "—",
+            row["status"],
+            row["check_in_time"].strftime("%H:%M") if row["check_in_time"] else "",
+            row["check_out_time"].strftime("%H:%M") if row["check_out_time"] else "",
+            row["late_minutes"] or 0,
+            float(row["total_hours"] or 0),
+            float(row["overtime_hours"] or 0),
+        ])
+    buf.seek(0)
+    return buf.getvalue()
 
 
 async def mark_on_leave(

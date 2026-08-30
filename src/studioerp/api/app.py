@@ -34,6 +34,7 @@ async def _init_db() -> None:
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await _init_db()
 
+    from studioerp.generate_timesheet import close_browser
     from studioerp.rings.comms.backup import scheduler as backup_scheduler
     from studioerp.rings.work.timesheets import scheduler as timesheet_scheduler
 
@@ -44,6 +45,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     finally:
         timesheet_scheduler.stop_timesheet_scheduler()
         backup_scheduler.stop_backup_scheduler()
+        await close_browser()
 
 
 def create_app() -> FastAPI:

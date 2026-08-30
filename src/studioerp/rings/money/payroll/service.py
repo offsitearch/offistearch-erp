@@ -20,7 +20,7 @@ from studioerp.enums import (
 )
 from studioerp.errors import PayrollError
 from studioerp.money import q as _q
-from studioerp.pdf import payslip_pdf
+from studioerp.salary_slip_generator import generate_payslip_pdf
 from studioerp.platform.orgstructure.models import Department
 from studioerp.platform.users import User
 from studioerp.rings.money.payroll.models import (
@@ -667,26 +667,78 @@ async def delete_run(db: AsyncSession, run: PayrollRun) -> None:
 
 
 # ── payslips ──────────────────────────────────────────────────────────────────
+async def _entry_meta(db: AsyncSession, user_id: int) -> dict:
+    row = (
+        await db.execute(
+            select(User, Department.name, SalaryComponent)
+            .select_from(User)
+            .outerjoin(Department, Department.id == User.department_id)
+            .outerjoin(SalaryComponent, SalaryComponent.user_id == User.id)
+            .where(User.id == user_id)
+        )
+    ).first()
+    if row is None:
+        return {}
+    user, dept, salary = row
+    return {
+        "name": user.name,
+        "designation": user.designation,
+        "employee_id": user.employee_id or f"U-{user.id}",
+        "department": dept,
+        "date_of_joining": _fmt_date(user.date_of_joining),
+        "bank_name": salary.bank_name if salary else None,
+        "account_number": salary.account_number if salary else None,
+        "ifsc_code": salary.ifsc_code if salary else None,
+    }
+
+
+def _payslip_data(
+    entry: PayrollEntry,
+    adjustments: list,
+    run: PayrollRun,
+    emp: dict,
+) -> dict:
+    additions = [a for a in adjustments if a.kind == PayrollAdjustmentKind.ADDITION]
+    extra = [a for a in adjustments if a.kind == PayrollAdjustmentKind.DEDUCTION]
+    earnings = [
+        ("Basic Salary", entry.basic_amount),
+        ("House Rent Allowance", entry.hra_amount),
+        ("Special Allowance", entry.special_amount),
+    ]
+    earnings += [(a.label, a.amount) for a in additions]
+    deductions = [("Provident Fund (PF)", entry.pf_deduction)]
+    deductions += [(a.label, a.amount) for a in extra]
+    period = f"{calendar.month_name[run.month]} {run.year}"
+    notes = [
+        "This is a computer-generated salary slip and does not require a physical signature.",
+        "For any discrepancy, please contact HR within 7 days of receipt.",
+    ]
+    if not entry.prorate:
+        notes.insert(0, "Paid full monthly salary (attendance proration switched off).")
+    return {
+        "employee": emp,
+        "slip_no": f"PS-{run.year}{run.month:02d}-{entry.user_id}",
+        "pay_period": period,
+        "pay_date": _fmt_date(run.processed_at.date()) if run.processed_at else period,
+        "attendance": {
+            "paid_days": entry.working_days,
+            "total_days": entry.total_days,
+        },
+        "earnings": earnings,
+        "deductions": deductions,
+        "currency": "INR",
+        "notes": notes,
+    }
+
+
 async def get_payslip(db: AsyncSession, run: PayrollRun, user_id: int) -> tuple[bytes, str]:
     if run.status == PayrollStatus.DRAFT:
         raise PayrollError("Payslips are only available after the run is processed", 409)
     entry = _find_entry(run, user_id)
     if entry is None:
         raise PayrollError("Payslip not found for this employee", 404)
-    user = await db.get(User, user_id)
-    name = user.name if user else f"User #{user_id}"
-    employee_id = (user.employee_id if user and user.employee_id else None) or f"U-{user_id}"
-    designation = user.designation if user else None
-    month_label = f"{calendar.month_name[run.month]} {run.year}"
-    content = payslip_pdf(
-        employee_name=name,
-        employee_id=employee_id,
-        designation=designation or "",
-        month_label=month_label,
-        working_days=entry.working_days,
-        gross_salary=entry.gross_salary,
-        deductions=entry.deductions,
-        net_pay=entry.net_pay,
-    )
+    adjustments = (await _adjustments_for(db, [entry.id])).get(entry.id, [])
+    meta = await _entry_meta(db, user_id)
+    content = generate_payslip_pdf(_payslip_data(entry, adjustments, run, meta))
     filename = f"payslip-{user_id}-{run.month}-{run.year}.pdf"
     return content, filename

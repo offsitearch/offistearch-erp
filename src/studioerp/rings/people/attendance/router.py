@@ -1,14 +1,15 @@
 """Attendance tracking routes (r2/people). Ported from ``app/modules/attendance/routes.py``.
 
 Endpoints: /attendance — clock-in/out, daily records, per-user summaries,
-bulk marking and JSON report. Deferred to owning modules/phases: the holidays
-module serves /holidays, and XLSX/CSV report export awaits the reporting phase.
+bulk marking and report (JSON, XLSX or CSV). The holidays module (owning
+module: leaves) serves /holidays elsewhere.
 """
 
 from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from studioerp.audit import log_audit
@@ -172,15 +173,33 @@ async def patch_record(
     return _record_out(record)
 
 
-@router.get("/report", response_model=ReportOut)
+@router.get("/report", response_model=None)
 async def report(
     current_user: Annotated[User, Depends(require_min_level("L3"))],
     db: Annotated[AsyncSession, Depends(get_db)],
     from_date: date,
     to_date: date,
     department_id: int | None = None,
-) -> ReportOut:
+    format: str = Query(default="json", pattern="^(json|csv|xlsx)$"),
+):
     rows = await attendance_service.report_rows(db, from_date, to_date, department_id)
+
+    if format == "xlsx":
+        content = attendance_service.attendance_xlsx(rows, from_date, to_date)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=attendance_report.xlsx"},
+        )
+
+    if format == "csv":
+        content = attendance_service.attendance_csv(rows, from_date, to_date)
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=attendance_report.csv"},
+        )
+
     return ReportOut(
         from_date=from_date,
         to_date=to_date,

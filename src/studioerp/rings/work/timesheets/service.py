@@ -29,10 +29,16 @@ from sqlalchemy.orm import aliased
 from studioerp.config import settings
 from studioerp.enums import TimesheetStatus
 from studioerp.errors import TimesheetError
-from studioerp.pdf import timesheet_month_pdf, timesheet_pdf
+from studioerp.generate_timesheet import (
+    generate_timesheet_pdf,
+    group_entries_by_date,
+    logo_to_data_uri,
+    render_timesheet_html,
+)
 from studioerp.platform.notifications.models import Notification
 from studioerp.platform.notifications.service import notify
 from studioerp.platform.orgstructure.models import Department, OrgLevel
+from studioerp.platform.settings.service import get_studio_info
 from studioerp.platform.users import User
 from studioerp.rbac import (
     LEVEL_RANK,
@@ -44,7 +50,7 @@ from studioerp.rings.work.projects.models import Project
 from studioerp.rings.work.tasks.models import Task
 from studioerp.rings.work.timesheets.models import Timesheet, TimesheetDay, TimesheetEntry
 from studioerp.rings.work.timesheets.schemas import TimesheetWeekSave
-from studioerp.time import now_local, to_local, utc_now
+from studioerp.time import now_local, utc_now
 from studioerp.xlsx import write_xlsx
 
 
@@ -710,41 +716,45 @@ def _hours_text(value) -> str:
 
 
 async def build_pdf(db: AsyncSession, timesheet_id: int) -> tuple[bytes, str]:
-    """Render a week sheet as a PDF receipt. Caller handles access control."""
+    """Render a week sheet as a branded PDF receipt (Jinja2 + Playwright)."""
     detail = await get_detail(db, timesheet_id)
-    entries = (
-        await db.execute(
-            select(TimesheetEntry, Project.name)
-            .outerjoin(Project, Project.id == TimesheetEntry.project_id)
-            .where(TimesheetEntry.timesheet_id == timesheet_id)
-            .order_by(TimesheetEntry.date, TimesheetEntry.id)
-        )
-    ).all()
-    rows = [
-        {
-            "date": entry.date.isoformat(),
-            "project": project_name or "\u2014",
-            "description": entry.description or "",
-            "hours": _hours_text(entry.hours),
-        }
-        for entry, project_name in entries
-    ]
-    submitted_label = None
-    if detail.get("submitted_at"):
-        submitted_label = to_local(detail["submitted_at"]).strftime("%d %b %Y %H:%M")
-    content = timesheet_pdf(
-        employee_name=detail["user_name"] or f"User #{detail['user_id']}",
-        employee_code=detail["employee_id"],
-        week_label=(
-            f"{detail['week_start'].strftime('%d %b %Y')} – "
-            f"{detail['week_end'].strftime('%d %b %Y')}"
-        ),
-        status=detail["status"],
-        submitted_label=submitted_label,
-        reviewer_name=detail.get("approved_by_name"),
-        rows=rows,
-        total_hours=f"{_hours_text(detail['total_hours'])} hrs",
+    entries_result = await db.execute(
+        select(TimesheetEntry, Project.name)
+        .outerjoin(Project, Project.id == TimesheetEntry.project_id)
+        .where(TimesheetEntry.timesheet_id == timesheet_id)
+        .order_by(TimesheetEntry.date, TimesheetEntry.id)
     )
+    raw_entries = [
+        {
+            "date": entry.date.strftime("%d %b"),
+            "hours": _hours_text(entry.hours),
+            "project": project_name or "\u2014",
+            "location": entry.location or "",
+            "description": entry.description or "",
+        }
+        for entry, project_name in entries_result.all()
+    ]
+    date_groups = group_entries_by_date(raw_entries)
+
+    company = await get_studio_info(db)
+    logo = company.get("logo")
+    logo_data_uri = logo_to_data_uri(logo) if logo else None
+
+    context = {
+        "company_name": company.get("name", "Studio"),
+        "company_tagline": company.get("tagline", ""),
+        "logo_path": logo_data_uri,
+        "employee_name": detail["user_name"] or f"User #{detail['user_id']}",
+        "designation": "",
+        "period_from": detail["week_start"].strftime("%d %b %Y"),
+        "period_to": detail["week_end"].strftime("%d %b %Y"),
+        "approved_by": detail.get("approved_by_name") or "",
+        "total_hours": f"{_hours_text(detail['total_hours'])} hrs",
+        "date_groups": date_groups,
+    }
+
+    html = render_timesheet_html(context)
+    content = await generate_timesheet_pdf(html)
     filename = (
         f"timesheet-{detail['employee_id'] or detail['user_id']}-"
         f"{detail['week_start'].isoformat()}.pdf"
@@ -884,43 +894,62 @@ async def build_month_xlsx(
 async def build_month_pdf(
     db: AsyncSession, year: int, month: int, user_id: int | None = None
 ) -> bytes:
-    """Render a month's timesheet entries as a PDF, one section per employee."""
+    """Render a month's timesheet entries as a branded PDF, one section per employee."""
+    from calendar import monthrange
+
     rows = await month_export_rows(db, year, month, user_id)
 
-    grouped: dict[tuple[str, str], list[dict]] = {}
-    totals: dict[tuple[str, str], Decimal] = {}
+    groups: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
         key = (r["employee_id"] or "", r["employee"])
-        grouped.setdefault(key, []).append(
+        groups.setdefault(key, []).append(
             {
-                "date": r["date"].isoformat(),
-                "project": r["project"],
-                "description": r["description"] or "",
+                "date": r["date"].strftime("%d %b"),
                 "hours": _hours_text(r["hours"]),
+                "project": r["project"],
+                "location": r["location"] or "",
+                "description": r["description"] or "",
             }
         )
-        totals[key] = totals.get(key, Decimal("0")) + r["hours"]
 
-    sections = []
+    company = await get_studio_info(db)
+    logo = company.get("logo")
+    logo_data_uri = logo_to_data_uri(logo) if logo else None
+
+    start = date(year, month, 1)
+    end = date(year, month, monthrange(year, month)[1])
+
+    employee_sections = []
     grand_total = Decimal("0")
-    for key, total in sorted(totals.items()):
-        employee_id, employee_name = key
-        grand_total += total
-        heading = f"{employee_name} ({employee_id})" if employee_id else employee_name
-        sections.append(
+    for (employee_id, employee_name), emp_rows in sorted(groups.items()):
+        emp_total = sum((Decimal(str(r["hours"])) for r in emp_rows), Decimal("0"))
+        grand_total += emp_total
+        date_groups = group_entries_by_date(emp_rows)
+        employee_sections.append(
             {
-                "heading": heading,
-                "rows": grouped[key],
-                "total_hours": f"{_hours_text(total)} hrs",
+                "employee_name": f"{employee_name} ({employee_id})" if employee_id else employee_name,
+                "designation": "",
+                "date_groups": date_groups,
+                "total_hours": f"{_hours_text(emp_total)} hrs",
             }
         )
 
-    month_name = date(year, month, 1).strftime("%B %Y")
-    return timesheet_month_pdf(
-        title=f"Timesheets — {month_name}",
-        groups=sections,
-        grand_total=f"{_hours_text(grand_total)} hrs",
-    )
+    context = {
+        "company_name": company.get("name", "Studio"),
+        "company_tagline": company.get("tagline", ""),
+        "logo_path": logo_data_uri,
+        "employee_name": employee_sections[0]["employee_name"] if len(employee_sections) == 1 else "",
+        "designation": "",
+        "period_from": start.strftime("%d %b %Y"),
+        "period_to": end.strftime("%d %b %Y"),
+        "approved_by": "",
+        "total_hours": f"{_hours_text(grand_total)} hrs",
+        "date_groups": employee_sections[0]["date_groups"] if len(employee_sections) == 1 else [],
+        "employees": employee_sections,
+    }
+
+    html = render_timesheet_html(context)
+    return await generate_timesheet_pdf(html)
 
 
 # ── Scheduled helpers (Friday reminder / Monday auto-submit) ────────
