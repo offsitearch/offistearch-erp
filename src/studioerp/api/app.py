@@ -105,6 +105,12 @@ def create_app() -> FastAPI:
         finance_router,
         invoices_router,
     )
+    from studioerp.rings.comms.notices.router import router as notices_router
+    from studioerp.rings.comms.meetings.router import router as meetings_router
+    from studioerp.rings.comms.audit.router import router as audit_router
+    from studioerp.rings.comms.backup.router import router as backup_router
+    from studioerp.rings.comms.dashboard.router import router as dashboard_router
+    from studioerp.rings.comms.reports.router import router as reports_router
 
     # ── Cross-ring wiring (composition root only) ──────────────────────
     # The work ring stores Project.client_id as a plain int and exposes an
@@ -148,6 +154,12 @@ def create_app() -> FastAPI:
         finance_router,
         invoices_router,
         expenses_router,
+        notices_router,
+        meetings_router,
+        audit_router,
+        backup_router,
+        dashboard_router,
+        reports_router,
     ):
         app.include_router(router, prefix=settings.api_v1_prefix)
 
