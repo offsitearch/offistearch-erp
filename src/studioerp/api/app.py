@@ -33,7 +33,17 @@ async def _init_db() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await _init_db()
-    yield
+
+    from studioerp.rings.comms.backup import scheduler as backup_scheduler
+    from studioerp.rings.work.timesheets import scheduler as timesheet_scheduler
+
+    backup_scheduler.start_backup_scheduler()
+    timesheet_scheduler.start_timesheet_scheduler()
+    try:
+        yield
+    finally:
+        timesheet_scheduler.stop_timesheet_scheduler()
+        backup_scheduler.stop_backup_scheduler()
 
 
 def create_app() -> FastAPI:
@@ -100,6 +110,7 @@ def create_app() -> FastAPI:
     from studioerp.rings.work.timesheets.router import router as timesheets_router
     from studioerp.rings.work.site_visits.router import router as site_visits_router
     from studioerp.rings.money.clients.router import router as clients_router
+    from studioerp.rings.money.payroll.router import payroll_router
     from studioerp.rings.money.finance.router import (
         expenses_router,
         finance_router,
@@ -151,6 +162,7 @@ def create_app() -> FastAPI:
         timesheets_router,
         site_visits_router,
         clients_router,
+        payroll_router,
         finance_router,
         invoices_router,
         expenses_router,

@@ -13,8 +13,9 @@ Logging rules:
   its day rows: any submitted → submitted, else any rejected → rejected,
   else all approved → approved, else draft.
 
-Deferred (reporting / scheduling phase): month XLSX/PDF exports, the weekly
-PDF receipt, and the Friday-reminder / Monday-auto-submit scheduler.
+Reporting & scheduling: a per-sheet PDF receipt, month XLSX/PDF exports,
+plus a Friday-reminder / Monday-auto-submit scheduler (wired into the app
+lifespan via :mod:`studioerp.rings.work.timesheets.scheduler`).
 """
 
 from datetime import date, timedelta
@@ -25,8 +26,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from studioerp.config import settings
 from studioerp.enums import TimesheetStatus
 from studioerp.errors import TimesheetError
+from studioerp.pdf import timesheet_month_pdf, timesheet_pdf
+from studioerp.platform.notifications.models import Notification
 from studioerp.platform.notifications.service import notify
 from studioerp.platform.orgstructure.models import Department, OrgLevel
 from studioerp.platform.users import User
@@ -40,7 +44,8 @@ from studioerp.rings.work.projects.models import Project
 from studioerp.rings.work.tasks.models import Task
 from studioerp.rings.work.timesheets.models import Timesheet, TimesheetDay, TimesheetEntry
 from studioerp.rings.work.timesheets.schemas import TimesheetWeekSave
-from studioerp.time import now_local, utc_now
+from studioerp.time import now_local, to_local, utc_now
+from studioerp.xlsx import write_xlsx
 
 
 def monday_of(day: date) -> date:
@@ -691,3 +696,352 @@ async def reject_day(
     await db.commit()
     await db.refresh(sheet)
     return await get_detail(db, timesheet_id)
+
+
+# ── PDF receipts & month export ────────────────────────────────────
+
+
+def _hours_text(value) -> str:
+    """Compact decimal text for exports (7.50 → '7.5', 8 → '8')."""
+    normalised = Decimal(str(value)).normalize()
+    if normalised == normalised.to_integral_value():
+        return str(normalised.quantize(Decimal("1")))
+    return format(normalised, "f")
+
+
+async def build_pdf(db: AsyncSession, timesheet_id: int) -> tuple[bytes, str]:
+    """Render a week sheet as a PDF receipt. Caller handles access control."""
+    detail = await get_detail(db, timesheet_id)
+    entries = (
+        await db.execute(
+            select(TimesheetEntry, Project.name)
+            .outerjoin(Project, Project.id == TimesheetEntry.project_id)
+            .where(TimesheetEntry.timesheet_id == timesheet_id)
+            .order_by(TimesheetEntry.date, TimesheetEntry.id)
+        )
+    ).all()
+    rows = [
+        {
+            "date": entry.date.isoformat(),
+            "project": project_name or "\u2014",
+            "description": entry.description or "",
+            "hours": _hours_text(entry.hours),
+        }
+        for entry, project_name in entries
+    ]
+    submitted_label = None
+    if detail.get("submitted_at"):
+        submitted_label = to_local(detail["submitted_at"]).strftime("%d %b %Y %H:%M")
+    content = timesheet_pdf(
+        employee_name=detail["user_name"] or f"User #{detail['user_id']}",
+        employee_code=detail["employee_id"],
+        week_label=(
+            f"{detail['week_start'].strftime('%d %b %Y')} – "
+            f"{detail['week_end'].strftime('%d %b %Y')}"
+        ),
+        status=detail["status"],
+        submitted_label=submitted_label,
+        reviewer_name=detail.get("approved_by_name"),
+        rows=rows,
+        total_hours=f"{_hours_text(detail['total_hours'])} hrs",
+    )
+    filename = (
+        f"timesheet-{detail['employee_id'] or detail['user_id']}-"
+        f"{detail['week_start'].isoformat()}.pdf"
+    )
+    return content, filename
+
+
+async def month_export_rows(
+    db: AsyncSession, year: int, month: int, user_id: int | None = None
+) -> list[dict]:
+    """Flat rows for one month of timesheets, grouped by employee downstream."""
+    from calendar import monthrange
+
+    start = date(year, month, 1)
+    end = date(year, month, monthrange(year, month)[1])
+    stmt = (
+        select(TimesheetEntry, User.name, User.employee_id, Project.name)
+        .join(Timesheet, Timesheet.id == TimesheetEntry.timesheet_id)
+        .join(User, User.id == Timesheet.user_id)
+        .outerjoin(Project, Project.id == TimesheetEntry.project_id)
+        .where(TimesheetEntry.date >= start, TimesheetEntry.date <= end)
+        .order_by(User.name, User.id, TimesheetEntry.date, TimesheetEntry.id)
+    )
+    if user_id is not None:
+        stmt = stmt.where(Timesheet.user_id == user_id)
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "employee_id": employee_id,
+            "employee": name,
+            "date": entry.date,
+            "project": project_name or "\u2014",
+            "location": entry.location or "",
+            "description": entry.description or "",
+            "hours": entry.hours,
+            "status": "logged",
+        }
+        for entry, name, employee_id, project_name in rows
+    ]
+
+
+async def build_month_xlsx(
+    db: AsyncSession, year: int, month: int, user_id: int | None = None
+) -> bytes:
+    from collections import Counter
+
+    rows = await month_export_rows(db, year, month, user_id)
+    month_name = date(year, month, 1).strftime("%B %Y")
+    today_str = now_local().date().isoformat()
+
+    unique_employees = len({r["employee_id"] for r in rows})
+    total_hours = sum(float(r["hours"]) for r in rows)
+    project_counts = Counter(r["project"] for r in rows if r["project"] != "\u2014")
+    top_projects = project_counts.most_common(10)
+
+    num_cols = 5
+    kpi_items = [
+        ("Month", month_name),
+        ("Total Entries", str(len(rows))),
+        ("Employees", str(unique_employees)),
+        ("Total Hours", f"{total_hours:,.1f}"),
+    ]
+    proj_items = [(project, str(count)) for project, count in top_projects]
+
+    extra_before: list[list[tuple[str, str | None]]] = [
+        [(f"Timesheets — {month_name}", "title")] + [("", None)] * (num_cols - 1),
+        [(f"Generated: {today_str}", "subtitle")] + [("", None)] * (num_cols - 1),
+        [("", None)] * num_cols,
+        [("Overview", "section")] + [("", None)] * (num_cols - 1),
+    ]
+    for label, value in kpi_items:
+        extra_before.append(
+            [(label, "summary_label"), (str(value), "summary_value")]
+            + [("", None)] * (num_cols - 2)
+        )
+    if proj_items:
+        extra_before.append([("", None)] * num_cols)
+        extra_before.append(
+            [("Top Projects by Entries", "section")] + [("", None)] * (num_cols - 1)
+        )
+        for label, value in proj_items:
+            extra_before.append(
+                [(label, "summary_label"), (str(value), "summary_value")]
+                + [("", None)] * (num_cols - 2)
+            )
+
+    columns = ["Employee ID", "Employee", "Date", "Project", "Zone", "Description", "Hours"]
+    col_styles = [
+        "text_border",
+        "text_border",
+        "text_border",
+        "text_border",
+        "text_border",
+        "text_border",
+        "decimal1_border",
+    ]
+    alt_col_styles = [
+        "text_alt",
+        "text_alt",
+        "text_alt",
+        "text_alt",
+        "text_alt",
+        "text_alt",
+        "decimal1_alt",
+    ]
+    data = [
+        [
+            row["employee_id"] or "",
+            row["employee"],
+            row["date"].isoformat(),
+            row["project"],
+            row["location"] or "\u2014",
+            row["description"] or "",
+            float(row["hours"]),
+        ]
+        for row in rows
+    ]
+
+    summary_sheet: dict = {
+        "name": "Summary",
+        "columns": [""] * num_cols,
+        "rows": [],
+        "extra_rows_before": extra_before,
+        "freeze_row": 0,
+    }
+    detail_sheet: dict = {
+        "name": f"Timesheets {year}-{month:02d}",
+        "columns": columns,
+        "rows": data,
+        "col_styles": col_styles,
+        "alt_col_styles": alt_col_styles,
+        "freeze_row": 1,
+    }
+    return write_xlsx([summary_sheet, detail_sheet])
+
+
+async def build_month_pdf(
+    db: AsyncSession, year: int, month: int, user_id: int | None = None
+) -> bytes:
+    """Render a month's timesheet entries as a PDF, one section per employee."""
+    rows = await month_export_rows(db, year, month, user_id)
+
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    totals: dict[tuple[str, str], Decimal] = {}
+    for r in rows:
+        key = (r["employee_id"] or "", r["employee"])
+        grouped.setdefault(key, []).append(
+            {
+                "date": r["date"].isoformat(),
+                "project": r["project"],
+                "description": r["description"] or "",
+                "hours": _hours_text(r["hours"]),
+            }
+        )
+        totals[key] = totals.get(key, Decimal("0")) + r["hours"]
+
+    sections = []
+    grand_total = Decimal("0")
+    for key, total in sorted(totals.items()):
+        employee_id, employee_name = key
+        grand_total += total
+        heading = f"{employee_name} ({employee_id})" if employee_id else employee_name
+        sections.append(
+            {
+                "heading": heading,
+                "rows": grouped[key],
+                "total_hours": f"{_hours_text(total)} hrs",
+            }
+        )
+
+    month_name = date(year, month, 1).strftime("%B %Y")
+    return timesheet_month_pdf(
+        title=f"Timesheets — {month_name}",
+        groups=sections,
+        grand_total=f"{_hours_text(grand_total)} hrs",
+    )
+
+
+# ── Scheduled helpers (Friday reminder / Monday auto-submit) ────────
+
+
+async def send_weekly_reminders(db: AsyncSession) -> int:
+    """Nudge active users who haven't submitted this week's timesheet.
+
+    Runs Friday afternoon (local time); deduplicated per user per week.
+    """
+    if not settings.timesheet_reminder_enabled:
+        return 0
+    local_now = now_local()
+    today = local_now.date()
+    if today.weekday() != 4 or local_now.hour < settings.timesheet_reminder_hour:
+        return 0
+
+    monday = monday_of(today)
+    reminded = set(
+        (
+            await db.execute(
+                select(Notification.user_id).where(
+                    Notification.title == "Weekly timesheet reminder",
+                    Notification.created_at >= monday,
+                )
+            )
+        ).scalars()
+    )
+
+    users = (await db.execute(select(User).where(User.is_active.is_(True)))).scalars().all()
+    sheets = {
+        ts.user_id: ts
+        for ts in (await db.execute(select(Timesheet).where(Timesheet.week_start == monday))).scalars()
+    }
+
+    sent = 0
+    for user in users:
+        if user.id in reminded:
+            continue
+        sheet = sheets.get(user.id)
+        if sheet is not None and sheet.status in (
+            TimesheetStatus.SUBMITTED,
+            TimesheetStatus.APPROVED,
+        ):
+            continue
+        await notify(
+            db,
+            user.id,
+            title="Weekly timesheet reminder",
+            body="Please log today's hours and submit your timesheet before the week closes.",
+            type="timesheet",
+            link="/timesheets",
+        )
+        sent += 1
+    if sent:
+        await db.commit()
+    return sent
+
+
+async def auto_submit_finished_weeks(db: AsyncSession) -> int:
+    """Auto-submit last week's DRAFT timesheets that have hours.
+
+    Only touches plain drafts — sheets with rejected days keep waiting on
+    the employee's fixes.
+    """
+    if not settings.timesheet_autosubmit_enabled:
+        return 0
+    local_now = now_local()
+    if local_now.date().weekday() != 0 or local_now.hour >= settings.timesheet_autosubmit_hour:
+        return 0
+
+    finished_monday = monday_of(local_now.date()) - timedelta(days=7)
+    sheets = (
+        (
+            await db.execute(
+                select(Timesheet).where(
+                    Timesheet.week_start == finished_monday,
+                    Timesheet.status == TimesheetStatus.DRAFT,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    submitted = 0
+    for sheet in sheets:
+        hours = (
+            await db.execute(
+                select(func.coalesce(func.sum(TimesheetEntry.hours), 0)).where(
+                    TimesheetEntry.timesheet_id == sheet.id
+                )
+            )
+        ).scalar_one()
+        if not hours or Decimal(str(hours)) <= 0:
+            continue
+        days = await _day_rows(db, sheet.id)
+        now = utc_now()
+        touched = False
+        for row in days.values():
+            if row.status == TimesheetStatus.DRAFT:
+                row.status = TimesheetStatus.SUBMITTED
+                row.submitted_at = now
+                touched = True
+        if not touched:
+            continue
+        sheet.submitted_at = now
+        sheet.rejection_reason = None
+        _sync_sheet_status(sheet, days)
+        await notify(
+            db,
+            sheet.user_id,
+            title="Timesheet auto-submitted",
+            body=(
+                f"Your timesheet for the week of {finished_monday.isoformat()} "
+                "was automatically submitted because it was still a draft."
+            ),
+            type="timesheet",
+            link="/timesheets",
+        )
+        submitted += 1
+    if submitted:
+        await db.commit()
+    return submitted

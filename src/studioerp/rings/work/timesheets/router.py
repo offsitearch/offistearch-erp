@@ -2,16 +2,13 @@
 
 Endpoints: /timesheets — daily entry logging (today only, rejected days
 reopen), week/day submit for review, lead+ approval per day or in bulk,
-admin listing.
-
-Deferred (reporting phase): month XLSX/PDF export and the per-sheet PDF
-receipt.
+admin listing, per-sheet PDF receipt and month XLSX/PDF exports.
 """
 
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from studioerp.audit import log_audit
@@ -115,6 +112,70 @@ async def admin_list(
         db, page, page_size, user_id, status_filter, from_week, to_week
     )
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/export/month")
+async def export_month(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    month: int = Query(default_factory=lambda: _today().month, ge=1, le=12),
+    year: int = Query(default_factory=lambda: _today().year, ge=2000, le=2100),
+    format: str = Query(default="xlsx", pattern="^(xlsx|pdf)$"),
+    user_id: int | None = None,
+) -> Response:
+    """Month export of timesheet entries (own data; other users need L2+)."""
+    if user_id is not None and user_id != current_user.id and not has_min_level(current_user, "L2"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only L2+ can export other employees' timesheets",
+        )
+    try:
+        if format == "pdf":
+            content = await timesheet_service.build_month_pdf(db, year, month, user_id)
+            filename = f"timesheets-{year}-{month:02d}.pdf"
+        else:
+            content = await timesheet_service.build_month_xlsx(db, year, month, user_id)
+            filename = f"timesheets-{year}-{month:02d}.xlsx"
+    except TimesheetError as exc:
+        raise _domain_error(exc) from exc
+    media = (
+        "application/pdf"
+        if format == "pdf"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    await log_audit(
+        db,
+        current_user,
+        "export",
+        "timesheet",
+        entity_id=f"{year}-{month:02d}",
+        details={"format": format, "user_id": user_id},
+    )
+    await db.commit()
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{timesheet_id}/pdf")
+async def timesheet_pdf(
+    timesheet_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Download the week sheet as a PDF receipt (owner or lead+)."""
+    await _authorise_view(db, timesheet_id, current_user)
+    try:
+        content, filename = await timesheet_service.build_pdf(db, timesheet_id)
+    except TimesheetError as exc:
+        raise _domain_error(exc) from exc
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{timesheet_id}", response_model=TimesheetDetail)

@@ -36,6 +36,7 @@ source_modules =
     studioerp.schemas
     studioerp.middleware
     studioerp.audit
+    studioerp.upload
 forbidden_modules =
     studioerp.platform
     studioerp.rings

@@ -26,7 +26,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 from sqlalchemy.types import Enum as SAEnum
 
 from studioerp.db.base import Base, TimestampMixin
@@ -106,7 +106,7 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     fetch without depending on the people ring. The people ring's identity
     module layers richer queries on top.
     """
-    return await db.get(User, user_id)
+    return await db.get(User, user_id, options=[selectinload(User.org_level)])
 
 
 async def get_user_by_login_id(db: AsyncSession, login_id: str) -> User | None:

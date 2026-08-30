@@ -39,10 +39,28 @@ services:
     volumes:
       - ./src:/app/src
       - ./scripts:/app/scripts
+      - ./templates:/app/templates
       - uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    restart: unless-stopped
+    environment:
+      VITE_PROXY_TARGET: http://backend:8100
+      VITE_CLIENT_PORT: "${FRONTEND_PORT:-5173}"
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+    depends_on:
+      - backend
 
 volumes:
   pgdata:

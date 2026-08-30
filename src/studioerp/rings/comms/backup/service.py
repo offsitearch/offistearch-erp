@@ -24,7 +24,8 @@ from uuid import UUID
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.types import Boolean, Date, DateTime, Float, Integer, Numeric
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from studioerp.config import settings
@@ -463,3 +464,74 @@ async def is_backup_due(db: AsyncSession) -> bool:
     if config.frequency == "weekly":
         return last_local.isocalendar()[:2] < today.isocalendar()[:2]
     return last_local.date() < today
+
+
+# ── Restore ────────────────────────────────────────────────────────────────
+
+
+def _coerce_value(col, value: Any) -> Any:
+    """Coerce a dumped (serialized) value back to its SQLAlchemy column type."""
+    if value is None:
+        return None
+    typ = col.type
+    if isinstance(typ, (DateTime,)):
+        return datetime.fromisoformat(value) if isinstance(value, str) else value
+    if isinstance(typ, Date):
+        return date.fromisoformat(value) if isinstance(value, str) else value
+    if isinstance(typ, Numeric):
+        return Decimal(str(value))
+    if isinstance(typ, Integer):
+        return int(value)
+    if isinstance(typ, Float):
+        return float(value)
+    if isinstance(typ, Boolean):
+        return bool(value)
+    return value
+
+
+async def restore_dump(db: AsyncSession, content: bytes) -> dict:
+    """Restore the whole database from a gzipped JSON dump.
+
+    Destructive by design: every table present in the archive is truncated and
+    re-populated inside a single transaction that rolls back on any failure.
+    ``backup_configs`` is never restored (it holds live secrets) and is skipped.
+    Tables absent from the archive are left untouched.
+    """
+    try:
+        payload = json.loads(gzip.decompress(content).decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 — surfaced as a client-facing error
+        raise ValueError("Invalid or corrupted backup archive") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid backup archive: expected a table map")
+
+    order = [t for t in Base.metadata.sorted_tables if t.name in payload and t.name not in DUMP_EXCLUDED_TABLES]
+    if not order:
+        raise ValueError("Backup archive contains no restorable tables")
+
+    restored: dict[str, int] = {}
+    try:
+        for table in reversed(order):
+            await db.execute(delete(table))
+        for table in order:
+            col_map = table.c
+            rows = payload[table.name] if isinstance(payload[table.name], list) else []
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError(f"Invalid row in table {table.name}")
+                coerced = {
+                    key: _coerce_value(col_map[key], value)
+                    for key, value in row.items()
+                    if key in col_map
+                }
+                await db.execute(table.insert().values(coerced))
+            restored[table.name] = len(rows)
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 — roll back and report
+        await db.rollback()
+        raise ValueError(f"Restore failed and was rolled back: {exc}") from exc
+    return {
+        "restored_tables": restored,
+        "restored_count": len(restored),
+        "total_rows": sum(restored.values()),
+        "skipped_tables": sorted(DUMP_EXCLUDED_TABLES),
+    }

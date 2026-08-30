@@ -17,6 +17,7 @@ RUN groupadd --gid 1000 appuser && useradd --uid 1000 --gid 1000 -m appuser
 COPY pyproject.toml .
 COPY src ./src
 COPY scripts ./scripts
+COPY templates ./templates
 
 # Install the package (editable) + runtime and .dev extras (pytest, ruff,
 # import-linter) so tests/lint work inside the container too.

@@ -1,21 +1,32 @@
 """Site visit logging routes (ring r3/work). Ported from
-``app/modules/site_visits/routes.py`` (CRUD subset).
+``app/modules/site_visits/routes.py``.
 
-Endpoints: /site-visits — list, create, get, update, delete. Authenticated
-users; leaders see all visits, others see own + their projects'. Photo
-upload/download and the PDF report are deferred until the storage/PDF
-abstractions land.
+Endpoints: /site-visits — list, create, get, update, delete, photo upload,
+photo download, and PDF report. Authenticated users; leaders see all visits,
+others see own + their projects'.
 """
 
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from studioerp.audit import log_audit
 from studioerp.db.session import get_db
 from studioerp.errors import SiteVisitError
+from studioerp.pdf import site_visit_pdf
 from studioerp.platform.deps import get_current_user
 from studioerp.platform.users import User
 from studioerp.rbac import (
@@ -31,9 +42,12 @@ from studioerp.rings.work.site_visits.models import SiteVisit
 from studioerp.rings.work.site_visits.schemas import (
     SiteVisitCreate,
     SiteVisitOut,
+    SiteVisitPhotoOut,
     SiteVisitUpdate,
 )
 from studioerp.schemas import MessageResponse, PaginatedResponse
+from studioerp.storage import get_storage
+from studioerp.upload import ALLOWED_IMAGE_EXTENSIONS, validate_upload
 
 router = APIRouter(prefix="/site-visits", tags=["site-visits"])
 
@@ -185,3 +199,91 @@ async def delete_visit(
     await log_audit(db, current_user, "delete", "site_visit", entity_id=str(visit_id))
     await site_visit_service.delete_visit(db, visit)
     return MessageResponse(message="Site visit deleted")
+
+
+@router.post(
+    "/{visit_id}/photos",
+    response_model=SiteVisitPhotoOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_photo(
+    visit_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: Annotated[UploadFile, File()],
+    caption: Annotated[str | None, Form()] = None,
+) -> dict:
+    visit = await _get_or_404(db, visit_id)
+    if not await _can_manage(db, visit, current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not the creator")
+    content = await file.read()
+    suffix = validate_upload(file, content, allowed=ALLOWED_IMAGE_EXTENSIONS, label="photo")
+    photo = await site_visit_service.add_photo(
+        db, visit, content, suffix, caption, current_user
+    )
+    await log_audit(db, current_user, "create", "site_visit_photo", entity_id=str(photo["id"]))
+    await db.commit()
+    return photo
+
+
+@router.get("/{visit_id}/photos/{photo_id}")
+async def download_photo(
+    visit_id: int,
+    photo_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    visit = await _get_or_404(db, visit_id)
+    if not await _can_view(db, visit, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+        )
+    try:
+        photo = await site_visit_service.get_photo(db, photo_id)
+    except SiteVisitError as exc:
+        raise _domain_error(exc) from exc
+    if photo.site_visit_id != visit.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    storage = get_storage()
+    try:
+        content = await storage.download(photo.file_path)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Photo file missing from storage"
+        )
+    filename = Path(photo.file_path).name
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{visit_id}/report")
+async def visit_report(
+    visit_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    visit = await _get_or_404(db, visit_id)
+    if not await _can_view(db, visit, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+        )
+    profile = await site_visit_service._profile(db, visit)
+    content = site_visit_pdf(
+        project_code=profile["project_code"] or "",
+        project_name=profile["project_name"] or "",
+        visit_date=profile["visit_date"],
+        purpose=profile["purpose"],
+        location=profile["location"],
+        notes=profile["notes"],
+        attendance_notes=profile["attendance_notes"],
+        photos=profile["photos"],
+    )
+    filename = f"site_visit_{visit_id}_{visit.visit_date.isoformat()}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

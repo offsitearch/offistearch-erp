@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 # Import every ring model so Base.metadata knows all tables and the ORM mapper
 # configuration resolves (platform Department/OrgLevel must load first).
+import studioerp.audit  # noqa: F401  (kernel AuditLog -- login/audit write path)
 import studioerp.platform.notifications.models  # noqa: F401
 import studioerp.platform.orgstructure.models  # noqa: F401
 import studioerp.platform.settings.models  # noqa: F401
@@ -24,6 +25,7 @@ import studioerp.rings.comms.meetings.models  # noqa: F401
 import studioerp.rings.comms.notices.models  # noqa: F401
 import studioerp.rings.money.clients.models  # noqa: F401
 import studioerp.rings.money.finance.models  # noqa: F401
+import studioerp.rings.money.payroll.models  # noqa: F401
 import studioerp.rings.people.attendance.models  # noqa: F401
 import studioerp.rings.people.employees.models  # noqa: F401
 import studioerp.rings.people.holidays.models  # noqa: F401

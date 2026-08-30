@@ -9,7 +9,7 @@ table in the database including salary and financial data.
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -148,3 +148,33 @@ async def download_backup(
         media_type="application/gzip",
         headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
     )
+
+
+@router.post("/restore")
+async def restore_backup(
+    current_user: Annotated[User, Depends(require_min_level("L0"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: Annotated[UploadFile, File()],
+) -> dict:
+    """Upload a ``.json.gz`` dump and restore the database from it.
+
+    Destructive: all tables present in the archive are replaced. Executive-only
+    (L0) because this overwrites every table in the database.
+    """
+    from studioerp.upload import ALLOWED_BACKUP_EXTENSIONS, validate_upload
+
+    content = await file.read()
+    validate_upload(file, content, allowed=ALLOWED_BACKUP_EXTENSIONS, label="backup")
+    try:
+        result = await backup_service.restore_dump(db, content)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await log_audit(
+        db,
+        current_user,
+        "restore",
+        "backup",
+        details=result,
+    )
+    await db.commit()
+    return result

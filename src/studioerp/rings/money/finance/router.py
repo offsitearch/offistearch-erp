@@ -8,16 +8,32 @@ Deferred (storage/PDF/email abstractions pending): invoice PDF download, receipt
 upload/download, and the send-invoice email.
 """
 
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from studioerp.audit import log_audit
+from studioerp.config import settings
 from studioerp.db.session import get_db
+from studioerp.email import send_invoice_email
 from studioerp.errors import FinanceError
 from studioerp.platform.deps import get_current_user, require_financial_access
 from studioerp.platform.users import User
+from studioerp.rings.money.clients.models import Client
 from studioerp.rings.money.finance import service as finance_service
 from studioerp.rings.money.finance.models import Expense, Invoice
 from studioerp.rings.money.finance.schemas import (
@@ -30,6 +46,8 @@ from studioerp.rings.money.finance.schemas import (
     InvoiceUpdate,
 )
 from studioerp.schemas import PaginatedResponse
+from studioerp.storage import get_storage
+from studioerp.upload import ALLOWED_RECEIPT_EXTENSIONS, validate_upload
 
 finance_router = APIRouter(prefix="/finance", tags=["finance"])
 invoices_router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -163,15 +181,54 @@ async def send_invoice(
     current_user: Annotated[User, Depends(require_financial_access())],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    invoice = await _get_or_404(db, Invoice, invoice_id)
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload
+
+    invoice = (
+        await db.execute(
+            _select(Invoice)
+            .where(Invoice.id == invoice_id)
+            .options(selectinload(Invoice.client))
+        )
+    ).scalar_one_or_none()
+    if invoice is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    client: Client | None = invoice.client
     try:
         result = await finance_service.send_invoice(db, invoice)
     except FinanceError as exc:
         raise _domain_error(exc) from exc
     await log_audit(db, current_user, "send", "invoice", entity_id=str(invoice_id))
     await db.commit()
-    # Email delivery to the client is deferred until the email module lands.
+    if settings.email_enabled and client and client.email:
+        await send_invoice_email(
+            client.email,
+            client.name,
+            result.get("invoice_number", ""),
+            str(result.get("total", "")),
+            str(result.get("due_date", "")),
+        )
     return result
+
+
+@invoices_router.get("/{invoice_id}/pdf")
+async def download_invoice_pdf(
+    invoice_id: int,
+    current_user: Annotated[User, Depends(require_financial_access())],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    try:
+        data = await finance_service.get_invoice(db, invoice_id)
+    except FinanceError as exc:
+        raise _domain_error(exc) from exc
+    content = await finance_service.build_invoice_pdf(db, data)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{data["invoice_number"]}.pdf"'
+        },
+    )
 
 
 @invoices_router.post("/{invoice_id}/payment", response_model=InvoiceOut)
@@ -215,17 +272,66 @@ async def list_expenses(
 
 @expenses_router.post("", response_model=ExpenseOut, status_code=status.HTTP_201_CREATED)
 async def create_expense(
-    payload: ExpenseCreate,
     current_user: Annotated[User, Depends(require_financial_access())],
     db: Annotated[AsyncSession, Depends(get_db)],
+    category: Annotated[str, Form(min_length=1, max_length=80)],
+    amount: Annotated[Decimal, Form()],
+    description: Annotated[str | None, Form()] = None,
+    expense_date: Annotated[date | None, Form()] = None,
+    project_id: Annotated[int | None, Form()] = None,
+    paid_by: Annotated[str | None, Form()] = None,
+    currency: Annotated[str, Form()] = "INR",
+    exchange_rate: Annotated[Decimal, Form()] = Decimal("1"),
+    file: Annotated[UploadFile | None, File()] = None,
 ) -> dict:
+    receipt_content: bytes | None = None
+    receipt_suffix = ""
+    if file is not None:
+        receipt_content = await file.read()
+        receipt_suffix = validate_upload(
+            file, receipt_content, allowed=ALLOWED_RECEIPT_EXTENSIONS, label="receipt"
+        )
+    payload = ExpenseCreate(
+        category=category,
+        amount=amount,
+        description=description,
+        expense_date=expense_date,
+        project_id=project_id,
+        paid_by=paid_by,
+        currency=currency,
+        exchange_rate=exchange_rate,
+    )
     try:
-        result = await finance_service.create_expense(db, payload)
+        result = await finance_service.create_expense(
+            db, payload, receipt_content=receipt_content, receipt_suffix=receipt_suffix
+        )
     except FinanceError as exc:
         raise _domain_error(exc) from exc
     await log_audit(db, current_user, "create", "expense", entity_id=str(result["id"]))
     await db.commit()
     return result
+
+
+@expenses_router.get("/{expense_id}/receipt")
+async def download_receipt(
+    expense_id: int,
+    current_user: Annotated[User, Depends(require_financial_access())],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    expense = await _get_or_404(db, Expense, expense_id)
+    if not expense.receipt_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No receipt uploaded for this expense"
+        )
+    storage = get_storage()
+    content = await storage.download(expense.receipt_path)
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{Path(expense.receipt_path).name}"'
+        },
+    )
 
 
 @expenses_router.patch("/{expense_id}/approve", response_model=ExpenseOut)

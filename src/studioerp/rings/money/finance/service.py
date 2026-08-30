@@ -17,6 +17,8 @@ from studioerp.currency import inr_value
 from studioerp.enums import ExpenseStatus, InvoiceStatus, PaymentMethod
 from studioerp.errors import FinanceError
 from studioerp.money import q as _q
+from studioerp.pdf import invoice_pdf
+from studioerp.platform.settings.service import get_studio_info
 from studioerp.platform.users import User
 from studioerp.rings.money.clients.models import Client
 from studioerp.rings.money.finance.models import Expense, Invoice, InvoiceItem
@@ -332,6 +334,87 @@ async def send_invoice(db: AsyncSession, invoice: Invoice) -> dict:
     return await get_invoice(db, invoice.id)
 
 
+def _pct(value: Decimal) -> str:
+    """Trim trailing zeros: 9.00 -> '9', 18.50 -> '18.5'."""
+    return f"{value.normalize():f}"
+
+
+def _tax_breakup(
+    studio_gstin: str | None,
+    client_gstin: str | None,
+    tax_percent: Decimal,
+    tax_amount: Decimal,
+) -> list[tuple[str, Decimal]]:
+    """GST lines for the invoice PDF.
+
+    Intra-state (both GSTINs share the first-2-digit state code): CGST + SGST
+    at half the rate each. Inter-state: one IGST line at the full rate. When
+    either side lacks a GSTIN, fall back to a single GST line.
+    """
+    if tax_amount <= 0:
+        return []
+    studio_code = (studio_gstin or "").strip()[:2]
+    client_code = (client_gstin or "").strip()[:2]
+    valid = lambda c: len(c) == 2 and c.isdigit()  # noqa: E731
+    if valid(studio_code) and valid(client_code):
+        if studio_code == client_code:
+            cgst = _q(tax_amount / 2)
+            sgst = _q(tax_amount - cgst)
+            half_rate = _q(tax_percent / 2)
+            return [
+                (f"CGST ({_pct(half_rate)}%)", cgst),
+                (f"SGST ({_pct(half_rate)}%)", sgst),
+            ]
+        return [(f"IGST ({_pct(_q(tax_percent))}%)", _q(tax_amount))]
+    if tax_amount > 0:
+        logger.warning(
+            "Invoice tax rendered as a single GST line - cannot determine place of supply "
+            "(studio GSTIN=%r, client GSTIN=%r). Add GSTINs for a correct CGST/SGST split.",
+            studio_gstin,
+            client_gstin,
+        )
+    return [(f"GST ({_pct(_q(tax_percent))}%)", _q(tax_amount))]
+
+
+_PAYMENT_SETTING_KEYS = ("bank_name", "account_name", "account_number", "ifsc_code", "upi_id")
+
+
+async def build_invoice_pdf(db: AsyncSession, data: dict, studio_info: dict | None = None) -> bytes:
+    if studio_info is None:
+        studio_info = await get_studio_info(db)
+    tax_lines = _tax_breakup(
+        studio_info.get("gstin"),
+        data.get("client_gstin"),
+        data["tax_percent"],
+        data["tax_amount"],
+    )
+    payment_details = {k: studio_info[k] for k in _PAYMENT_SETTING_KEYS if studio_info.get(k)}
+    terms = data.get("terms") or studio_info.get("default_terms")
+    return invoice_pdf(
+        invoice_number=data["invoice_number"],
+        client_name=data["client_name"] or f"Client #{data['client_id']}",
+        client_address=data.get("client_address"),
+        client_gstin=data.get("client_gstin"),
+        project_code=data.get("project_code"),
+        project_name=data.get("project_name"),
+        invoice_date=data["invoice_date"],
+        due_date=data["due_date"],
+        status=data["status"],
+        currency=data.get("currency") or "INR",
+        tax_percent=data["tax_percent"],
+        tax_amount=data["tax_amount"],
+        items=data["items"],
+        subtotal=data["subtotal"],
+        total=data["total"],
+        paid_amount=data["paid_amount"],
+        notes=data.get("notes"),
+        terms=terms,
+        studio_info=studio_info,
+        tax_lines=tax_lines or None,
+        payment_details=payment_details or None,
+    )
+
+
 async def record_payment(
     db: AsyncSession, invoice: Invoice, amount: Decimal, method: str, payment_date: date | None
 ) -> dict:
@@ -422,11 +505,23 @@ async def list_expenses(
     return items, total
 
 
-async def create_expense(db: AsyncSession, payload: ExpenseCreate) -> dict:
+async def create_expense(
+    db: AsyncSession, payload: ExpenseCreate, receipt_content: bytes | None = None, receipt_suffix: str = ""
+) -> dict:
     if payload.project_id is not None:
         project = await db.get(Project, payload.project_id)
         if project is None:
             raise FinanceError("Project not found", 404)
+    receipt_path: str | None = None
+    if receipt_content:
+        expense_date = payload.expense_date or _today()
+        from studioerp.storage import get_storage
+
+        filename = f"exp_{expense_date}_{len(receipt_content)}{receipt_suffix}"
+        storage_path = f"expenses/{filename}"
+        storage = get_storage()
+        await storage.upload(storage_path, receipt_content)
+        receipt_path = storage_path
     expense = Expense(
         category=payload.category,
         description=payload.description,
@@ -434,7 +529,7 @@ async def create_expense(db: AsyncSession, payload: ExpenseCreate) -> dict:
         expense_date=payload.expense_date or _today(),
         project_id=payload.project_id,
         paid_by=payload.paid_by,
-        receipt_path=None,
+        receipt_path=receipt_path,
         status=ExpenseStatus.PENDING,
         currency=payload.currency,
         exchange_rate=_q(payload.exchange_rate),

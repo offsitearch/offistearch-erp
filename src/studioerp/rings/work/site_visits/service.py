@@ -1,8 +1,6 @@
-"""Site visit CRUD (ring r3/work). Ported from ``app/modules/site_visits/service.py``.
+"""Site visit CRUD (ring r3/work). Ported from ``app/modules/site_visits/service.py``."""
 
-Deferred until the storage/PDF abstractions land: photo upload/download and the
-site-visit PDF report. Photo columns are still exposed (always empty for now).
-"""
+from uuid import uuid4
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +11,7 @@ from studioerp.rings.work.projects.models import Project
 from studioerp.rings.work.site_visits.models import SiteVisit, SiteVisitPhoto
 from studioerp.rings.work.site_visits.schemas import SiteVisitCreate, SiteVisitUpdate
 from studioerp.state_machines import assert_transition
+from studioerp.storage import get_storage
 from studioerp.time import utc_now
 
 
@@ -223,5 +222,50 @@ async def update_visit(db: AsyncSession, visit: SiteVisit, payload: SiteVisitUpd
 
 
 async def delete_visit(db: AsyncSession, visit: SiteVisit) -> None:
+    photos = (
+        (await db.execute(select(SiteVisitPhoto).where(SiteVisitPhoto.site_visit_id == visit.id)))
+        .scalars()
+        .all()
+    )
+    storage = get_storage()
+    for photo in photos:
+        await storage.delete(photo.file_path)
     await db.delete(visit)
     await db.commit()
+
+
+async def add_photo(
+    db: AsyncSession,
+    visit: SiteVisit,
+    content: bytes,
+    suffix: str,
+    caption: str | None,
+    user: User,
+) -> dict:
+    filename = f"sv_{visit.id}_{uuid4().hex[:8]}{suffix}"
+    storage_path = f"site_visits/{filename}"
+    storage = get_storage()
+    await storage.upload(storage_path, content)
+    photo = SiteVisitPhoto(
+        site_visit_id=visit.id,
+        file_path=storage_path,
+        caption=caption,
+        uploaded_by=user.id,
+    )
+    db.add(photo)
+    await db.commit()
+    await db.refresh(photo)
+    return {
+        "id": photo.id,
+        "file_path": photo.file_path,
+        "caption": photo.caption,
+        "uploaded_by": photo.uploaded_by,
+        "uploaded_at": photo.uploaded_at,
+    }
+
+
+async def get_photo(db: AsyncSession, photo_id: int) -> SiteVisitPhoto:
+    photo = await db.get(SiteVisitPhoto, photo_id)
+    if photo is None:
+        raise SiteVisitError("Photo not found", 404)
+    return photo
