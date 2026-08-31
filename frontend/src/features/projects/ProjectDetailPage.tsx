@@ -29,7 +29,7 @@ import {
 } from '../../api/projects';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { Skeleton } from '../../components/ui/Skeleton';
+import { LogoLoader } from '../../components/LogoLoader';
 import {
   canAccess,
   formatCurrency,
@@ -161,23 +161,7 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       {project.isPending ? (
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-3">
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-8 w-64" />
-              <Skeleton className="h-4 w-48" />
-            </div>
-            <Skeleton className="h-9 w-32" />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-          </div>
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-48 w-full" />
-        </div>
+        <LogoLoader />
       ) : project.isError || !data ? (
         <EmptyState icon={FolderKanban} title={t('projects.projectNotFound')} />
       ) : (

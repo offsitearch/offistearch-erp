@@ -20,7 +20,7 @@ import { getUsers } from '../../api/settings';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
 import FormSection from '../../components/ui/FormSection';
-import { Skeleton } from '../../components/ui/Skeleton';
+import { LogoLoader } from '../../components/LogoLoader';
 import { useToast } from '../../components/Toast';
 import DatePicker from '../../components/ui/DatePicker';
 import TimeInput from '../../components/ui/TimeInput';
@@ -58,11 +58,7 @@ export default function MeetingsPage() {
       </div>
 
       {meetings.isPending ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-52 w-full rounded-xl" />
-          ))}
-        </div>
+        <LogoLoader />
       ) : upcoming.length === 0 ? (
         <EmptyState
           title={t('meetings.noUpcomingMeetings')}

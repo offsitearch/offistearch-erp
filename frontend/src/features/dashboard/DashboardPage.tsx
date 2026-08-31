@@ -33,6 +33,7 @@ import { getProjects } from '../../api/projects';
 import { getTasks } from '../../api/tasks';
 import { addDays, weekStartFor } from '../../lib/date';
 import { StudioMark } from '../../components/BrandLogo';
+import { PageGate } from '../../components/PageGate';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { MetricCard } from '../../components/ui/MetricCard';
 import { SectionCard } from '../../components/ui/SectionCard';
@@ -1127,6 +1128,15 @@ export default function DashboardPage() {
   );
 
   return (
+    <PageGate
+      queries={[
+        summary,
+        projects,
+        tasks,
+        ...(isEmployee ? [myDay] : []),
+        ...(notices.isEnabled ? [notices] : []),
+      ]}
+    >
     <div className="relative">
       <div className="arch-grid-paper pointer-events-none absolute inset-0" aria-hidden="true" />
 
@@ -1343,5 +1353,6 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+    </PageGate>
   );
 }

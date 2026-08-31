@@ -9,7 +9,18 @@ import './styles/index.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false },
+    queries: {
+      staleTime: 5 * 60_000,
+      gcTime: 30 * 60_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+      refetchOnMount: (query) => {
+        // Re-fetch on mount only if the cached data is stale; otherwise render
+        // instantly from the warm in-memory cache (kills the loader reappearing
+        // on every navigation).
+        return query.state.dataUpdatedAt + 5 * 60_000 < Date.now();
+      },
+    },
   },
 });
 

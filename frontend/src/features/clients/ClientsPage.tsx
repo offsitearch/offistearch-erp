@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createClient, getClients } from '../../api/clients';
 import { Modal } from '../../components/Modal';
-import { Skeleton } from '../../components/ui/Skeleton';
+import { LogoLoader } from '../../components/LogoLoader';
 import DatePicker from '../../components/ui/DatePicker';
 import { clientTypeLabel, clientTypeMeta, CLIENT_TYPE_OPTIONS, DEAL_STAGE_META, DEAL_STAGE_OPTIONS } from '../../lib/constants';
 import { formatDate } from '../../lib/date';
@@ -200,11 +200,7 @@ export default function ClientsPage() {
       </div>
 
       {clients.isPending ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-52 w-full" />
-          ))}
-        </div>
+        <LogoLoader />
       ) : clients.isError ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-16 text-center">
           <AlertCircle className="h-6 w-6 text-danger" />
