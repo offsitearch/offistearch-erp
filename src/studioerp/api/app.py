@@ -186,20 +186,28 @@ def create_app() -> FastAPI:
             return {"status": "ok", "docs": "/api/v1/system/health"}
         return RedirectResponse(url="/docs")
 
-    # ── Health endpoint (public — uptimerobot) ─────────────────────
-    @app.get("/system/health", include_in_schema=False)
+    # ── Health endpoints (public — uptimerobot) ────────────────────
+    # Registered under the v1 prefix so the prod root's /api/v1/system/health
+    # link is real. Uptimerobot monitors /api/v1/system/health.
+    from fastapi import APIRouter as _APIRouter
+
+    system_router = _APIRouter()
+
+    @system_router.get("/system/health", include_in_schema=False)
     async def health_check() -> dict:
         t0 = time.monotonic()
         try:
             from sqlalchemy import text as _sqltext
-            from studioerp.db.session import async_session
+            from studioerp.db.session import get_session_factory
 
-            async with async_session() as session:
+            async with get_session_factory()() as session:
                 await session.execute(_sqltext("SELECT 1"))
             db_ms = round((time.monotonic() - t0) * 1000, 1)
             return {"status": "ok", "version": settings.app_version, "db_ms": db_ms}
         except Exception:
             return {"status": "degraded", "version": settings.app_version}
+
+    app.include_router(system_router, prefix=settings.api_v1_prefix)
 
     app.state.api_v1_prefix = settings.api_v1_prefix
     return app
