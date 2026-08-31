@@ -9,6 +9,7 @@ deferred until a connection is actually requested). Runtime behaviour is
 unchanged: callers use ``AsyncSessionLocal`` / ``get_db`` exactly as before.
 """
 
+import uuid
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 from urllib.parse import urlparse
@@ -36,12 +37,19 @@ def _is_external_pooler(url: str) -> bool:
 @lru_cache
 def _make_engine():
     use_null_pool = settings.environment == "test" or _is_external_pooler(settings.database_url)
+    connect_args: dict = {}
+    if use_null_pool:
+        # Supavisor/PgBouncer in transaction mode rejects fixed prepared-statement
+        # names (DuplicatePreparedStatementError). Give each prepared statement a
+        # unique name and drop SQLAlchemy's client-side cache so nothing is reused
+        # across pooler connections.
+        connect_args = {
+            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
+        }
     engine_kwargs: dict = {
         "echo": False,
         "pool_pre_ping": True,
-        "connect_args": {
-            "statement_cache_size": 0,
-        },
+        "connect_args": connect_args,
     }
     if use_null_pool:
         engine_kwargs["poolclass"] = NullPool
