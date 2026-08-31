@@ -130,7 +130,7 @@ async def seed_superuser(db) -> None:
         User(
             email=email,
             login_id=login_id,
-            name="Studio Owner",
+            name="CEO",
             org_level_id=level.id if level else None,
             designation="Chief Executive Officer",
             password_hash=hash_password(settings.first_superuser_password),
