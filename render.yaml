@@ -1,0 +1,50 @@
+# Render Blueprint — one-click deploy for the StudioERP v2 backend.
+# Requires a Postgres (Render or Supabase). To reduce cost/storage, we use the
+# Supabase cloud Postgres from the app config (see DATABASE_URL below).
+# Env values marked "" must be set in the Render dashboard (never committed).
+services:
+  - type: web
+    name: studioerp-v2-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/system/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        value: ""
+      - key: FIRST_SUPERUSER_EMAIL
+        value: admin@studioerp.dev
+      - key: FIRST_SUPERUSER_PASSWORD
+        value: ""
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: EMAIL_ENABLED
+        value: "false"
+      - key: SMTP_HOST
+        value: ""
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        value: ""
+      - key: SMTP_PASSWORD
+        value: ""
+      - key: EMAIL_FROM
+        value: noreply@studioerp.dev
+      - key: SECURITY_HEADERS_ENABLED
+        value: "true"
+      - key: SUPABASE_URL
+        value: ""
+      - key: SUPABASE_KEY
+        value: ""
+      - key: SUPABASE_STORAGE_BUCKET
+        value: employee-documents
