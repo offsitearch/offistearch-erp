@@ -303,6 +303,53 @@ async def get_department_designation_catalog() -> dict[str, list[str]]:
     return DEPARTMENT_DESIGNATIONS
 
 
+async def store_document(
+    db: AsyncSession,
+    user_id: int,
+    uploader: User,
+    doc_type: str,
+    file_name: str,
+    content: bytes,
+) -> dict:
+    import uuid as _uuid
+
+    from studioerp.storage import get_storage
+
+    safe_name = file_name.replace(" ", "_").replace("/", "_").replace("\\", "_")
+    stored_name = f"documents/{user_id}/{_uuid.uuid4().hex}_{safe_name}"
+    storage = get_storage()
+    await storage.upload(stored_name, content)
+
+    doc = EmployeeDocument(
+        user_id=user_id,
+        doc_type=doc_type,
+        file_name=safe_name,
+        file_path=stored_name,
+        uploaded_by=uploader.id,
+    )
+    db.add(doc)
+    await db.flush()
+    return {
+        "id": doc.id,
+        "user_id": doc.user_id,
+        "doc_type": doc.doc_type,
+        "file_name": doc.file_name,
+        "uploaded_by": doc.uploaded_by,
+        "uploaded_at": doc.uploaded_at,
+    }
+
+
+async def delete_document(db: AsyncSession, doc: EmployeeDocument) -> None:
+    from studioerp.storage import get_storage
+
+    storage = get_storage()
+    try:
+        await storage.delete(doc.file_path)
+    except Exception:
+        pass
+    await db.delete(doc)
+
+
 async def list_documents(
     db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20
 ) -> tuple[list[dict], int]:

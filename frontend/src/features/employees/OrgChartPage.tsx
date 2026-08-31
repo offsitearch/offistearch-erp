@@ -152,7 +152,7 @@ function PersonCard({
         to={`/employees/${encodeId(person.user_id)}`}
         className={`flex flex-col items-center rounded-lg border ${tier.border} ${tier.bg} px-4 py-3 text-center shadow-card transition hover:shadow-overlay`}
       >
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/80 text-xs font-semibold text-navy shadow-sm">
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-xs font-bold text-white shadow-sm">
           {initials(person.name)}
         </span>
         <p className="mt-2 truncate text-sm font-medium text-ink max-w-[8rem] hover:underline">{person.name}</p>
@@ -410,7 +410,7 @@ function PromoteModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navyDark/40 p-4">
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-surface p-6 shadow-overlay">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy/5 text-sm font-semibold text-navy">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-sm font-bold text-white shadow-sm">
             {initials(person.name)}
           </span>
           <div>

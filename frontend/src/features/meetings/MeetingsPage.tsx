@@ -488,8 +488,8 @@ function MeetingFormModal({ onClose }: { onClose: () => void }) {
           <FormSection icon={Users} title="Attendees" hint={`${selectedPeople.length} selected`}>
             <div className="overflow-hidden rounded-lg border border-border">
               <div className="flex items-center gap-3 border-b border-border bg-surfaceWarm/60 px-3 py-2.5">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange text-[11px] font-bold text-white">
-                  {user ? initials(user.name) : '?'}
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-[11px] font-bold text-white shadow-sm">
+                  {user ? user.name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() : '?'}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-ink">
@@ -563,8 +563,10 @@ function MeetingFormModal({ onClose }: { onClose: () => void }) {
                           className="h-4 w-4 shrink-0 rounded border-border accent-orange"
                         />
                         <span
-                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
-                            checked ? 'bg-orange text-white' : 'bg-graphite/10 text-graphite'
+                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[11px] font-bold shadow-sm ${
+                            checked
+                              ? 'border-[#C9964A]/20 bg-azure text-white'
+                              : 'border-border bg-graphite/10 text-graphite'
                           }`}
                         >
                           {initials(u.name)}

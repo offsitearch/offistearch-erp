@@ -254,7 +254,7 @@ export default function EmployeeDirectoryPage() {
                         className="group rounded-lg border border-border bg-paper/40 p-4 transition hover:border-orange/40 hover:shadow-card"
                       >
                         <div className="flex items-start gap-3">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy/5 text-xs font-semibold text-navy">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-xs font-bold text-white shadow-sm">
                             {initials(emp.name)}
                           </span>
                           <div className="min-w-0 flex-1">

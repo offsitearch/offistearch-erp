@@ -249,7 +249,7 @@ export default function LeaveApprovalsPage() {
                   className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-border bg-paper px-4 py-3 transition hover:shadow-sm"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy/10 text-xs font-bold text-navy">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-xs font-bold text-white shadow-sm">
                       {row.user_name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
                     </div>
                     <div className="min-w-0">

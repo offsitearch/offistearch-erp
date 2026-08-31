@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     timesheet_autosubmit_enabled: bool = True
     timesheet_autosubmit_hour: int = 9
 
+    security_headers_enabled: bool = False
+
     @model_validator(mode="after")
     def _guard_production(self) -> "Settings":
         if self.environment.lower() == "production":

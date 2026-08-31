@@ -182,7 +182,7 @@ export default function EmployeeProfilePage() {
       <header className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex items-center gap-4">
-            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-navy/5 text-lg font-semibold text-navy">
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-lg font-bold text-white shadow-sm">
               {initials(p.name)}
             </span>
             <div>

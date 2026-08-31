@@ -1,8 +1,8 @@
 """Leave request and approval routes (ring r2/people). Ported from
 ``app/modules/leave/routes.py``.
 
-Deferred: send_leave_status_email (no email module in rebuild yet; added when a
-notifications/email channel lands). In-app notifications via platform ring kept.
+Email notifications on approve/reject wired via email.send_leave_status_email.
+In-app notifications via platform ring kept.
 """
 
 from datetime import date
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from studioerp.audit import log_audit
 from studioerp.db.session import get_db
+from studioerp.email import send_leave_status_email
 from studioerp.errors import LeaveError
 from studioerp.platform.deps import get_current_user, require_min_level
 from studioerp.platform.notifications.service import notify
@@ -125,6 +126,16 @@ async def approve(
     except LeaveError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     await _notify_leave(db, leave, "approved")
+    target_user = await db.get(User, leave.user_id)
+    if target_user and target_user.email:
+        await send_leave_status_email(
+            target_user.email,
+            target_user.name,
+            leave.leave_type.value,
+            leave.from_date.isoformat(),
+            leave.to_date.isoformat(),
+            "approved",
+        )
     await log_audit(db, current_user, "approve", "leave", entity_id=str(leave_id))
     await db.commit()
     return _leave_out(leave)
@@ -142,6 +153,17 @@ async def reject(
     except LeaveError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     await _notify_leave(db, leave, "rejected")
+    target_user = await db.get(User, leave.user_id)
+    if target_user and target_user.email:
+        await send_leave_status_email(
+            target_user.email,
+            target_user.name,
+            leave.leave_type.value,
+            leave.from_date.isoformat(),
+            leave.to_date.isoformat(),
+            "rejected",
+            payload.reason,
+        )
     await log_audit(db, current_user, "reject", "leave", entity_id=str(leave_id))
     await db.commit()
     return _leave_out(leave)

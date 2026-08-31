@@ -1,14 +1,14 @@
 """Employee management routes (r2/people). Ported from ``app/modules/employees/routes.py``.
 
 Endpoints: /employees — directory, profiles, create/update, soft-delete, org
-chart, designation catalogs, document records. Deferred to owning rings/phases:
-purge (cross-ring), salary (money r4), attendance-summary & leaves (sibling
-people modules) and storage-backed document upload/download.
+chart, designation catalogs, document records (upload/download/delete backed
+by pluggable storage — Supabase in prod, local disk in dev).
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -21,6 +21,7 @@ from studioerp.platform.orgstructure.models import OrgLevel
 from studioerp.platform.users import User
 from studioerp.rbac import has_min_level, level_rank, user_level_rank
 from studioerp.rings.people.employees import service as employee_service
+from studioerp.rings.people.employees.models import EmployeeDocument
 from studioerp.rings.people.employees.schemas import (
     DocumentOut,
     EmployeeCreate,
@@ -31,6 +32,8 @@ from studioerp.rings.people.employees.schemas import (
     ProfileOut,
 )
 from studioerp.schemas import PaginatedResponse
+from studioerp.storage import get_storage
+from studioerp.upload import ALLOWED_DOCUMENT_EXTENSIONS, validate_upload
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -239,3 +242,91 @@ async def list_documents(
         )
     items, total = await employee_service.list_documents(db, user_id, page, page_size)
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post(
+    "/{user_id}/documents", response_model=DocumentOut, status_code=status.HTTP_201_CREATED
+)
+async def upload_document(
+    user_id: int,
+    current_user: Annotated[User, Depends(require_min_level("L2"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile,
+    doc_type: str = Query(default="other", max_length=40),
+) -> dict:
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+    validate_upload(file, content, allowed=ALLOWED_DOCUMENT_EXTENSIONS, label="document")
+    if await db.get(User, user_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    result = await employee_service.store_document(
+        db, user_id, current_user, doc_type, file.filename or "document", content
+    )
+    await log_audit(db, current_user, "create", "employee_document", entity_id=str(user_id))
+    await db.commit()
+    return result
+
+
+@router.get("/{user_id}/documents/{doc_id}/download")
+async def download_document(
+    user_id: int,
+    doc_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not has_min_level(current_user, "L3") and current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+        )
+    doc = (
+        (
+            await db.execute(
+                select(EmployeeDocument).where(
+                    EmployeeDocument.id == doc_id, EmployeeDocument.user_id == user_id
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    storage = get_storage()
+    try:
+        content = await storage.download(doc.file_path)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File missing from storage"
+        )
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{doc.file_name}"'},
+    )
+
+
+@router.delete("/{user_id}/documents/{doc_id}", status_code=status.HTTP_200_OK)
+async def delete_document(
+    user_id: int,
+    doc_id: int,
+    current_user: Annotated[User, Depends(require_min_level("L2"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    doc = (
+        (
+            await db.execute(
+                select(EmployeeDocument).where(
+                    EmployeeDocument.id == doc_id, EmployeeDocument.user_id == user_id
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    await employee_service.delete_document(db, doc)
+    await log_audit(db, current_user, "delete", "employee_document", entity_id=str(doc_id))
+    await db.commit()
+    return {"message": "Document deleted"}

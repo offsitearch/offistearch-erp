@@ -94,9 +94,9 @@ export function UsersTab() {
                   <tr key={u.id} className="border-b border-border last:border-0 hover:bg-surfaceWarm">
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-orange text-xs font-bold text-white">
-                          {initials(u.name)}
-                        </div>
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-xs font-bold text-white shadow-sm">
+                          {u.name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
+                        </span>
                         <div>
                           <p className="font-medium text-ink">{u.name}</p>
                           <p className="text-xs text-muted">
@@ -197,16 +197,6 @@ export function UsersTab() {
       )}
     </div>
   );
-}
-
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((p) => p[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 }
 
 interface UserFormValues {

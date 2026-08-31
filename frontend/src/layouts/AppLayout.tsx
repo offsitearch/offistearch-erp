@@ -89,16 +89,6 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
-
 function ThemeToggle({ className = '' }: { className?: string }) {
   const { theme, setTheme } = useTheme();
 
@@ -277,9 +267,9 @@ function SidebarContent({
             className="flex w-full items-center gap-3 rounded-xl border border-border bg-surfaceWarm p-2 text-left transition hover:border-orange/30 hover:bg-surface"
           >
             <div className="relative h-10 w-10 shrink-0">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange text-xs font-bold text-white">
-                {user ? initials(user.name) : '?'}
-              </div>
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#C9964A]/20 bg-azure text-xs font-bold text-white shadow-sm">
+                {user ? user.name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() : '?'}
+              </span>
               <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-surfaceWarm" />
             </div>
             <div className="min-w-0 flex-1">

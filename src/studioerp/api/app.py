@@ -5,6 +5,7 @@ This is the only place allowed to wire across rings.
 """
 
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -93,6 +94,8 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID", "Content-Disposition"],
     )
     app.add_middleware(GZipMiddleware, minimum_size=settings.gzip_min_size)
+    if settings.security_headers_enabled:
+        _SecurityHeadersMiddleware.install(app)
     app.add_middleware(RequestContextMiddleware)
 
     # ── Routers ──────────────────────────────────────────────────────
@@ -183,8 +186,56 @@ def create_app() -> FastAPI:
             return {"status": "ok", "docs": "/api/v1/system/health"}
         return RedirectResponse(url="/docs")
 
+    # ── Health endpoint (public — uptimerobot) ─────────────────────
+    @app.get("/system/health", include_in_schema=False)
+    async def health_check() -> dict:
+        t0 = time.monotonic()
+        try:
+            from sqlalchemy import text as _sqltext
+            from studioerp.db.session import async_session
+
+            async with async_session() as session:
+                await session.execute(_sqltext("SELECT 1"))
+            db_ms = round((time.monotonic() - t0) * 1000, 1)
+            return {"status": "ok", "version": settings.app_version, "db_ms": db_ms}
+        except Exception:
+            return {"status": "degraded", "version": settings.app_version}
+
     app.state.api_v1_prefix = settings.api_v1_prefix
     return app
+
+
+class _SecurityHeadersMiddleware:
+    """Lightweight security headers — off by default, enable via SECURITY_HEADERS_ENABLED."""
+
+    _HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    }
+
+    def __init__(self, app):  # type: ignore[no-untyped-def]
+        self.app = app
+
+    async def __call__(self, scope, receive, send):  # type: ignore[no-untyped-def]
+        if scope["type"] == "http":
+
+            async def send_with_headers(message):
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    for k, v in self._HEADERS.items():
+                        headers.append((k.lower().encode(), v.encode()))
+                    message["headers"] = headers
+                await send(message)
+
+            await self.app(scope, receive, send_with_headers)
+        else:
+            await self.app(scope, receive, send)
+
+    @classmethod
+    def install(cls, app: FastAPI) -> None:
+        app.add_middleware(cls)
 
 
 app = create_app()
