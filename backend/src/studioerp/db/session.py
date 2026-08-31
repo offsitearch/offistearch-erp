@@ -40,11 +40,14 @@ def _make_engine():
     connect_args: dict = {}
     if use_null_pool:
         # Supavisor/PgBouncer in transaction mode rejects fixed prepared-statement
-        # names (DuplicatePreparedStatementError). Give each prepared statement a
-        # unique name and drop SQLAlchemy's client-side cache so nothing is reused
-        # across pooler connections.
+        # names (DuplicatePreparedStatementError). In particular asyncpg prepares a
+        # fixed internal type-introspection statement ("__asyncpg_stmt_b__") that
+        # collides across pooler connections, so disable asyncpg's statement cache
+        # entirely (statement_cache_size=0). Give SQLAlchemy's own prepared
+        # statements unique names so nothing is reused across pooler connections.
         connect_args = {
             "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
+            "statement_cache_size": 0,
         }
     engine_kwargs: dict = {
         "echo": False,
