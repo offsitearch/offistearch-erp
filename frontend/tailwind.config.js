@@ -78,12 +78,12 @@ export default {
         overlay: '0 8px 24px rgba(26, 26, 24, 0.10)',
       },
       animation: {
-        'loader-bar': 'loaderBar 0.6s ease-out both',
+        'loader-bar': 'loaderBar 0.9s ease-in-out infinite',
       },
       keyframes: {
         loaderBar: {
-          '0%': { transform: 'scaleY(0)', transformOrigin: 'bottom' },
-          '100%': { transform: 'scaleY(1)', transformOrigin: 'bottom' },
+          '0%, 100%': { transform: 'scaleY(0.35)', transformOrigin: 'bottom' },
+          '50%': { transform: 'scaleY(1)', transformOrigin: 'bottom' },
         },
       },
     },
