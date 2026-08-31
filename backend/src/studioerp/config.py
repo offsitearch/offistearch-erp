@@ -14,7 +14,7 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_repo_root = Path(__file__).resolve().parents[2]  # studioerp-v2/ (repo root)
+_repo_root = Path(__file__).resolve().parents[3]  # studioerp-v2/ (repo root, holds top-level .env)
 
 
 class Settings(BaseSettings):

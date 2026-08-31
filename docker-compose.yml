@@ -26,7 +26,7 @@ services:
 
   backend:
     build:
-      context: .
+      context: ./backend
     restart: unless-stopped
     env_file: .env
     environment:
@@ -37,9 +37,9 @@ services:
     ports:
       - "${BACKEND_PORT:-8100}:8100"
     volumes:
-      - ./src:/app/src
-      - ./scripts:/app/scripts
-      - ./templates:/app/templates
+      - ./backend/src:/app/src
+      - ./backend/scripts:/app/scripts
+      - ./backend/templates:/app/templates
       - uploads:/app/uploads
     depends_on:
       db:

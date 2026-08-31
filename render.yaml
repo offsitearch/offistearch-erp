@@ -7,7 +7,7 @@ services:
     name: studioerp-v2-backend
     runtime: docker
     plan: free
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /api/v1/system/health
     envVars:
       - key: ENVIRONMENT
