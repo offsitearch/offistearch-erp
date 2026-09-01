@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /attendance
+Disallow: /leaves
+Disallow: /employees
+Disallow: /projects
+Disallow: /clients
+Disallow: /tasks
+Disallow: /timesheets
+Disallow: /notices
+Disallow: /meetings
+Disallow: /notifications
+Disallow: /site-visits
+Disallow: /finance
+Disallow: /reports
+Disallow: /settings
+
+Sitemap: https://erp.offsitearch.com/sitemap.xml

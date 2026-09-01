@@ -6,6 +6,7 @@ import { RequireAuth, RequireRole } from './components/RequireAuth';
 import { AppLayout } from './layouts/AppLayout';
 
 const LoginPage = lazy(() => import('./features/auth/LoginPage'));
+const LandingPage = lazy(() => import('./features/landing/LandingPage'));
 const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage'));
 const MyAttendancePage = lazy(() => import('./features/attendance/AttendancePage'));
 const MyLeavesPage = lazy(() => import('./features/leaves/MyLeavesPage'));
@@ -60,11 +61,12 @@ export default function App() {
     <div className="desktop-only">
     <Suspense fallback={<PageLoader />}>
       <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/home" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
 
       <Route element={<RequireAuth />}>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
 
           <Route path="/attendance" element={<MyAttendancePage />} />
