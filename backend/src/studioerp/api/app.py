@@ -193,7 +193,7 @@ def create_app() -> FastAPI:
 
     system_router = _APIRouter()
 
-    @system_router.get("/system/health", include_in_schema=False)
+    @system_router.api_route("/system/health", methods=["GET", "HEAD"], include_in_schema=False)
     async def health_check() -> dict:
         t0 = time.monotonic()
         try:
