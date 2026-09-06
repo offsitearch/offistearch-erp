@@ -12,8 +12,9 @@ turns per-query latency from seconds to tens of milliseconds.
 Prepared-statement handling stays hardened for pooler compatibility:
 asyncpg's statement cache is disabled and prepared statements get
 unique names so Supavisor never rejects them
-(DuplicatePreparedStatementError). Tests keep NullPool (fresh
-connection per request).
+(DuplicatePreparedStatementError). pool_pre_ping is off so a checkout
+costs one DB round trip instead of two; pool_recycle (1800s) rotates
+stale connections. Tests keep NullPool (fresh connection per request).
 
 The engine is created lazily on first access so the kernel can be imported
 and tested without a database driver installed (the asyncpg driver import is
@@ -36,7 +37,7 @@ def _make_engine():
     use_null_pool = settings.environment == "test"
     engine_kwargs: dict = {
         "echo": False,
-        "pool_pre_ping": True,
+        "pool_pre_ping": False,
         "connect_args": {
             "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
             "statement_cache_size": 0,
