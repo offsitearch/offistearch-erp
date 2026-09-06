@@ -20,6 +20,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from studioerp.db.pagination import fetch_page
+
 from studioerp.enums import PhaseStatus, ProjectType
 from studioerp.errors import ProjectError
 from studioerp.platform.users import User
@@ -189,37 +191,25 @@ async def list_projects(
         .outerjoin(User, User.id == Project.project_lead_id)
         .where(Project.is_active.is_(True))
     )
-    count_stmt = select(func.count(Project.id)).where(Project.is_active.is_(True))
 
     scope_cond = scope_condition(scope_user_id)
     if scope_cond is not None:
         base = base.where(scope_cond)
-        count_stmt = count_stmt.where(scope_cond)
 
     if search:
         like = f"%{search}%"
         cond = or_(Project.name.ilike(like), Project.project_code.ilike(like))
         base = base.where(cond)
-        count_stmt = count_stmt.where(cond)
     if project_type:
         base = base.where(Project.project_type == ProjectType(project_type))
-        count_stmt = count_stmt.where(Project.project_type == ProjectType(project_type))
     if status:
         base = base.where(Project.status == status)
-        count_stmt = count_stmt.where(Project.status == status)
     if client_id is not None:
         base = base.where(Project.client_id == client_id)
-        count_stmt = count_stmt.where(Project.client_id == client_id)
     if lead_id is not None:
         base = base.where(Project.project_lead_id == lead_id)
-        count_stmt = count_stmt.where(Project.project_lead_id == lead_id)
 
-    total = (await db.execute(count_stmt)).scalar_one()
-    rows = (
-        await db.execute(
-            base.order_by(Project.id.desc()).offset((page - 1) * page_size).limit(page_size)
-        )
-    ).all()
+    rows, total = await fetch_page(db, base.order_by(Project.id.desc()), page, page_size)
     client_ids = {project.client_id for project, _ in rows if project.client_id is not None}
     client_name_map = await _client_names(db, client_ids)
     items = [

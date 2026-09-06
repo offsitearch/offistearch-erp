@@ -8,9 +8,10 @@ people modules: ``get_holiday_dates`` (holidays) and ``mark_on_leave``
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.db.pagination import fetch_page
 from studioerp.enums import LeaveStatus, LeaveType
 from studioerp.errors import LeaveError
 from studioerp.platform.orgstructure.models import Department
@@ -335,13 +336,13 @@ async def list_mine(
     db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20
 ) -> tuple[list[Leave], int]:
     base = select(Leave).where(Leave.user_id == user_id)
-    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    result = await db.execute(
-        base.order_by(Leave.from_date.desc(), Leave.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+    rows, total = await fetch_page(
+        db,
+        base.order_by(Leave.from_date.desc(), Leave.created_at.desc()),
+        page,
+        page_size,
     )
-    return list(result.scalars().all()), total
+    return [row[0] for row in rows], total
 
 
 async def _leave_row(leave: Leave, user: User, department_name: str | None) -> dict:
@@ -370,17 +371,17 @@ async def _leave_row(leave: Leave, user: User, department_name: str | None) -> d
 async def pending_queue(
     db: AsyncSession, page: int = 1, page_size: int = 20
 ) -> tuple[list[dict], int]:
-    stmt = (
+    rows, total = await fetch_page(
+        db,
         select(Leave, User, Department.name)
         .join(User, User.id == Leave.user_id)
         .outerjoin(Department, Department.id == User.department_id)
         .where(Leave.status == LeaveStatus.PENDING)
-        .order_by(Leave.from_date, Leave.created_at)
+        .order_by(Leave.from_date, Leave.created_at),
+        page,
+        page_size,
     )
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = (await db.execute(count_stmt)).scalar_one()
-    result = await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))
-    return [await _leave_row(leave, user, dept) for leave, user, dept in result.all()], total
+    return [await _leave_row(leave, user, dept) for leave, user, dept in rows], total
 
 
 async def team_availability(db: AsyncSession, from_date: date, to_date: date) -> list[dict]:

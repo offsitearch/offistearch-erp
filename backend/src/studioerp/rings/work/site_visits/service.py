@@ -2,9 +2,10 @@
 
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.db.pagination import fetch_page
 from studioerp.errors import SiteVisitError
 from studioerp.platform.users import User
 from studioerp.rings.work.projects.models import Project
@@ -84,11 +85,8 @@ async def list_visits(
         stmt = stmt.where(SiteVisit.project_id == project_id)
     if status:
         stmt = stmt.where(SiteVisit.status == status)
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = (await db.execute(count_stmt)).scalar_one()
-    visits = (
-        (await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    )
+    rows, total = await fetch_page(db, stmt, page, page_size)
+    visits = [r[0] for r in rows]
     if not visits:
         return [], total
     visit_ids = [visit.id for visit in visits]

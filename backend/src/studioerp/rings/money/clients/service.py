@@ -11,6 +11,7 @@ from decimal import Decimal
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.db.pagination import fetch_page
 from studioerp.currency import inr_value
 from studioerp.enums import ClientType
 from studioerp.errors import ClientError
@@ -85,7 +86,6 @@ async def list_clients(
         .where(Client.is_active.is_(True))
         .group_by(Client.id)
     )
-    count_stmt = select(func.count(Client.id)).where(Client.is_active.is_(True))
 
     if search:
         like = f"%{search}%"
@@ -96,15 +96,10 @@ async def list_clients(
             Client.contact_person.ilike(like),
         )
         base = base.where(cond)
-        count_stmt = count_stmt.where(cond)
     if client_type:
         base = base.where(Client.client_type == ClientType(client_type))
-        count_stmt = count_stmt.where(Client.client_type == ClientType(client_type))
 
-    total = (await db.execute(count_stmt)).scalar_one()
-    rows = (
-        await db.execute(base.order_by(Client.name).offset((page - 1) * page_size).limit(page_size))
-    ).all()
+    rows, total = await fetch_page(db, base.order_by(Client.name), page, page_size)
     items = [
         {
             "id": client.id,

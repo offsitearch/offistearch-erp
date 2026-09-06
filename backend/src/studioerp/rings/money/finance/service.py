@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from studioerp.currency import inr_value
+from studioerp.db.pagination import fetch_page
 from studioerp.enums import ExpenseStatus, InvoiceStatus, PaymentMethod
 from studioerp.errors import FinanceError
 from studioerp.money import q as _q
@@ -491,19 +492,17 @@ async def list_expenses(
         start = date(year, month, 1)
         end = date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)
         stmt = stmt.where(Expense.expense_date >= start, Expense.expense_date < end)
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = (await db.execute(count_stmt)).scalar_one()
+    rows, total = await fetch_page(db, stmt, page, page_size)
+    expenses = [r[0] for r in rows]
 
-    rows = (await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))).scalars().all()
-
-    project_ids = {e.project_id for e in rows if e.project_id}
+    project_ids = {e.project_id for e in expenses if e.project_id}
     projects_map: dict[int, Project] = {}
     if project_ids:
         proj_rows = (
             (await db.execute(select(Project).where(Project.id.in_(project_ids)))).scalars().all()
         )
         projects_map = {p.id: p for p in proj_rows}
-    items = [await _expense_dict(db, expense, projects_map) for expense in rows]
+    items = [await _expense_dict(db, expense, projects_map) for expense in expenses]
     return items, total
 
 

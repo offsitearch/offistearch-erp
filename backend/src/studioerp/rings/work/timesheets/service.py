@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from studioerp.db.pagination import fetch_page
 from studioerp.config import settings
 from studioerp.enums import TimesheetStatus
 from studioerp.errors import TimesheetError
@@ -286,18 +287,7 @@ async def list_mine(
     db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20
 ) -> tuple[list[dict], int]:
     base = _list_select().where(Timesheet.user_id == user_id)
-    total = (
-        await db.execute(
-            select(func.count()).select_from(Timesheet).where(Timesheet.user_id == user_id)
-        )
-    ).scalar_one()
-    rows = (
-        await db.execute(
-            base.order_by(Timesheet.week_start.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
-    ).all()
+    rows, total = await fetch_page(db, base.order_by(Timesheet.week_start.desc()), page, page_size)
     return [_row_dict(r) for r in rows], total
 
 
@@ -310,30 +300,18 @@ async def pending_queue(
     level-less users, never other L3s). The CEO (L0) sees everything.
     """
     base = _list_select().where(Timesheet.status == TimesheetStatus.SUBMITTED)
-    count_stmt = (
-        select(func.count())
-        .select_from(Timesheet)
-        .where(Timesheet.status == TimesheetStatus.SUBMITTED)
-    )
     if user_level_rank(reviewer) != LEVEL_RANK["L0"]:
         allowed_codes = [
             code for code, rank in LEVEL_RANK.items() if rank > user_level_rank(reviewer)
         ]
         scope = OrgLevel.code.in_(allowed_codes) | User.org_level_id.is_(None)
         base = base.outerjoin(OrgLevel, OrgLevel.id == User.org_level_id).where(scope)
-        count_stmt = (
-            count_stmt.join(User, User.id == Timesheet.user_id)
-            .outerjoin(OrgLevel, OrgLevel.id == User.org_level_id)
-            .where(scope)
-        )
-    total = (await db.execute(count_stmt)).scalar_one()
-    rows = (
-        await db.execute(
-            base.order_by(Timesheet.submitted_at.asc().nulls_last(), Timesheet.id)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
-    ).all()
+    rows, total = await fetch_page(
+        db,
+        base.order_by(Timesheet.submitted_at.asc().nulls_last(), Timesheet.id),
+        page,
+        page_size,
+    )
     return [_row_dict(r) for r in rows], total
 
 
@@ -347,31 +325,24 @@ async def admin_list(
     to_week: date | None = None,
 ) -> tuple[list[dict], int]:
     stmt = _list_select()
-    count_stmt = select(func.count()).select_from(Timesheet)
     if user_id is not None:
         stmt = stmt.where(Timesheet.user_id == user_id)
-        count_stmt = count_stmt.where(Timesheet.user_id == user_id)
     if status_filter:
         try:
             status_enum = TimesheetStatus(status_filter)
         except ValueError as exc:
             raise TimesheetError(f"Unknown status '{status_filter}'", 400) from exc
         stmt = stmt.where(Timesheet.status == status_enum)
-        count_stmt = count_stmt.where(Timesheet.status == status_enum)
     if from_week is not None:
         stmt = stmt.where(Timesheet.week_start >= monday_of(from_week))
-        count_stmt = count_stmt.where(Timesheet.week_start >= monday_of(from_week))
     if to_week is not None:
         stmt = stmt.where(Timesheet.week_start <= monday_of(to_week))
-        count_stmt = count_stmt.where(Timesheet.week_start <= monday_of(to_week))
-    total = (await db.execute(count_stmt)).scalar_one()
-    rows = (
-        await db.execute(
-            stmt.order_by(Timesheet.week_start.desc(), Timesheet.id.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
-    ).all()
+    rows, total = await fetch_page(
+        db,
+        stmt.order_by(Timesheet.week_start.desc(), Timesheet.id.desc()),
+        page,
+        page_size,
+    )
     return [_row_dict(r) for r in rows], total
 
 

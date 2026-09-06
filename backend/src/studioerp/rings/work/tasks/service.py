@@ -1,9 +1,10 @@
 """Tasks CRUD, board view, checklist, and assignments (ring r3/work). Ported
 from ``app/modules/tasks/service.py``."""
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.db.pagination import fetch_page
 from studioerp.enums import TaskStatus
 from studioerp.errors import TaskError
 from studioerp.platform.users import User
@@ -80,42 +81,28 @@ async def list_tasks(
     page_size: int,
     scope_user_id: int | None = None,
 ) -> tuple[list[dict], int]:
-    base = (
-        select(Task, Project.name, User.name)
-        .outerjoin(Project, Project.id == Task.project_id)
-        .outerjoin(User, User.id == Task.assigned_to)
-        .where(Task.is_active.is_(True))
-    )
-    count_stmt = select(func.count(Task.id)).where(Task.is_active.is_(True))
+    base = select(Task, Project.name, User.name).outerjoin(
+        Project, Project.id == Task.project_id
+    ).outerjoin(User, User.id == Task.assigned_to).where(Task.is_active.is_(True))
 
     if scope_user_id is not None:
         scope_cond = _scope_cond(
             scope_user_id, await project_service.user_project_ids(db, scope_user_id)
         )
         base = base.where(scope_cond)
-        count_stmt = count_stmt.where(scope_cond)
 
     if search:
         like = f"%{search}%"
         cond = Task.title.ilike(like)
         base = base.where(cond)
-        count_stmt = count_stmt.where(cond)
     if project_id is not None:
         base = base.where(Task.project_id == project_id)
-        count_stmt = count_stmt.where(Task.project_id == project_id)
     if assignee is not None:
         base = base.where(Task.assigned_to == assignee)
-        count_stmt = count_stmt.where(Task.assigned_to == assignee)
     if status:
         base = base.where(Task.status == TaskStatus(status))
-        count_stmt = count_stmt.where(Task.status == TaskStatus(status))
 
-    total = (await db.execute(count_stmt)).scalar_one()
-    rows = (
-        await db.execute(
-            base.order_by(Task.id.desc()).offset((page - 1) * page_size).limit(page_size)
-        )
-    ).all()
+    rows, total = await fetch_page(db, base.order_by(Task.id.desc()), page, page_size)
     items: list[dict] = []
     for task, project_name, assignee_name in rows:
         items.append(_task_dict(task, project_name, assignee_name))

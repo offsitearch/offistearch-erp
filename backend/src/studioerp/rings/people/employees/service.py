@@ -5,10 +5,11 @@ designation catalogs and document records. Salary, permanent purge (cross-ring)
 and storage-backed document transfer are deferred to their owning rings.
 """
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from studioerp.db.pagination import fetch_page
 from studioerp.errors import EmployeeError
 from studioerp.platform.orgstructure.models import Department, OrgLevel
 from studioerp.platform.org_structure import DEPARTMENT_DESIGNATIONS, DESIGNATION_CATALOG
@@ -37,9 +38,6 @@ async def list_employees(
         .outerjoin(OrgLevel, OrgLevel.id == User.org_level_id)
         .order_by(User.name)
     )
-    count_stmt = select(func.count(User.id)).outerjoin(
-        Department, Department.id == User.department_id
-    )
 
     if search:
         like = f"%{search}%"
@@ -50,25 +48,18 @@ async def list_employees(
             User.designation.ilike(like),
         )
         stmt = stmt.where(cond)
-        count_stmt = count_stmt.where(cond)
     if department_id is not None:
         stmt = stmt.where(User.department_id == department_id)
-        count_stmt = count_stmt.where(User.department_id == department_id)
     if org_level_id is not None:
         stmt = stmt.where(User.org_level_id == org_level_id)
-        count_stmt = count_stmt.where(User.org_level_id == org_level_id)
     if skill:
         stmt = stmt.where(User.skills.any(skill))
-        count_stmt = count_stmt.where(User.skills.any(skill))
     if inactive_only:
         stmt = stmt.where(User.is_active.is_(False))
-        count_stmt = count_stmt.where(User.is_active.is_(False))
     elif active_only:
         stmt = stmt.where(User.is_active.is_(True))
-        count_stmt = count_stmt.where(User.is_active.is_(True))
 
-    total = (await db.execute(count_stmt)).scalar_one()
-    result = await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))
+    rows, total = await fetch_page(db, stmt, page, page_size)
     items = [
         {
             "id": user.id,
@@ -83,7 +74,7 @@ async def list_employees(
             "employment_type": user.employment_type.value,
             "is_active": user.is_active,
         }
-        for user, dept, level in result.all()
+        for user, dept, level in rows
     ]
     return items, total
 
@@ -354,18 +345,13 @@ async def list_documents(
     db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20
 ) -> tuple[list[dict], int]:
     base = select(EmployeeDocument).where(EmployeeDocument.user_id == user_id)
-    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    rows = (
-        (
-            await db.execute(
-                base.order_by(EmployeeDocument.uploaded_at.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            )
-        )
-        .scalars()
-        .all()
+    rows, total = await fetch_page(
+        db,
+        base.order_by(EmployeeDocument.uploaded_at.desc()),
+        page,
+        page_size,
     )
+    docs = [r[0] for r in rows]
     items = [
         {
             "id": doc.id,
@@ -375,6 +361,6 @@ async def list_documents(
             "uploaded_by": doc.uploaded_by,
             "uploaded_at": doc.uploaded_at,
         }
-        for doc in rows
+        for doc in docs
     ]
     return items, total

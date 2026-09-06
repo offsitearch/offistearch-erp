@@ -2,9 +2,10 @@
 Ported from ``app/modules/notices/service.py``.
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.db.pagination import fetch_page
 from studioerp.enums import NoticeImportance
 from studioerp.platform.users import User
 from studioerp.rings.comms.notices.models import Notice
@@ -32,9 +33,7 @@ async def list_notices(
     )
     if not include_inactive:
         stmt = stmt.where(Notice.is_active.is_(True))
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = (await db.execute(count_stmt)).scalar_one()
-    rows = (await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))).all()
+    rows, total = await fetch_page(db, stmt, page, page_size)
     today = now_local().date()
     result: list[dict] = []
     for notice, author_name in rows:

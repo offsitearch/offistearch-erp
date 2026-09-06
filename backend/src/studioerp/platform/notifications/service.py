@@ -8,6 +8,7 @@ in-app alerts.
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.db.pagination import fetch_page
 from studioerp.platform.notifications.models import Notification
 
 
@@ -27,16 +28,15 @@ async def notify(
 async def list_mine(
     db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20
 ) -> tuple[list[Notification], int]:
-    count_stmt = select(func.count()).where(Notification.user_id == user_id)
-    total = (await db.execute(count_stmt)).scalar_one()
-    result = await db.execute(
+    rows, total = await fetch_page(
+        db,
         select(Notification)
         .where(Notification.user_id == user_id)
-        .order_by(Notification.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        .order_by(Notification.created_at.desc()),
+        page,
+        page_size,
     )
-    return list(result.scalars().all()), total
+    return [row[0] for row in rows], total
 
 
 async def unread_count(db: AsyncSession, user_id: int) -> int:

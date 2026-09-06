@@ -6,9 +6,10 @@ are notified via the platform ``notify`` helper (which does not commit; the
 caller commits).
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from studioerp.db.pagination import fetch_page
 from studioerp.enums import RsvpStatus
 from studioerp.errors import MeetingError
 from studioerp.platform.notifications.service import notify
@@ -78,11 +79,8 @@ async def list_meetings(
     if not include_all:
         attendee_sub = select(MeetingAttendee.meeting_id).where(MeetingAttendee.user_id == user.id)
         stmt = stmt.where((Meeting.organizer_id == user.id) | (Meeting.id.in_(attendee_sub)))
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = (await db.execute(count_stmt)).scalar_one()
-    meetings = (
-        (await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    )
+    rows, total = await fetch_page(db, stmt, page, page_size)
+    meetings = [r[0] for r in rows]
     if not meetings:
         return [], total
     meeting_ids = [meeting.id for meeting in meetings]
