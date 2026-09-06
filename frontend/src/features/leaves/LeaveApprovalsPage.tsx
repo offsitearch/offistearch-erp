@@ -6,6 +6,8 @@ import { approveLeave, getPendingLeaves, getTeamAvailability, rejectLeave } from
 import { leaveTypeLabel } from '../../lib/constants';
 import { formatDate, formatDateRange, formatDayCount, toISODate } from '../../lib/date';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { LiveIndicator } from '../../components/LiveIndicator';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { LeaveTabs } from './components/LeaveTabs';
 import { LeaveStatusBadge } from './components/LeaveStatusBadge';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +28,8 @@ export default function LeaveApprovalsPage() {
     queryKey: ['leaves', 'pending'],
     queryFn: getPendingLeaves,
   });
+
+  const liveTick = useLiveRefresh([['leaves', 'pending'], ['leaves', 'team-availability']]);
 
   const availability = useQuery({
     queryKey: ['leaves', 'team-availability', quarterFrom, quarterTo],
@@ -77,11 +81,14 @@ export default function LeaveApprovalsPage() {
             <h2 className="text-sm font-semibold text-ink">Pending approvals</h2>
             <p className="mt-0.5 text-xs text-muted">Requests waiting for your review, newest first.</p>
           </div>
-          {pendingCount > 0 && (
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-warning/15 px-2 text-xs font-bold tabular-nums text-warning">
-              {pendingCount}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            <LiveIndicator lastTickAt={liveTick} />
+            {pendingCount > 0 && (
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-warning/15 px-2 text-xs font-bold tabular-nums text-warning">
+                {pendingCount}
+              </span>
+            )}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[880px] text-left text-sm">

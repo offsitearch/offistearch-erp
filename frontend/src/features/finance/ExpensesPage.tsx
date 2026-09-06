@@ -10,6 +10,8 @@ import {
 } from '../../api/finance';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LogoLoader } from '../../components/LogoLoader';
+import { LiveIndicator } from '../../components/LiveIndicator';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import FormSection from '../../components/ui/FormSection';
 import DatePicker from '../../components/ui/DatePicker';
 import CurrencyInput from '../../components/ui/CurrencyInput';
@@ -45,6 +47,8 @@ export default function ExpensesPage() {
   const user = useAuthStore((s) => s.user);
   const [creating, setCreating] = useState(false);
 
+  const liveTick = useLiveRefresh([['expenses']]);
+
   const expenses = useQuery({
     queryKey: ['expenses'],
     queryFn: () => getExpenses(),
@@ -70,9 +74,12 @@ export default function ExpensesPage() {
             {t('finance.recordProjectCosts')} and route them through approval.
           </p>
         </div>
-        <button onClick={() => setCreating(true)} className={primaryBtnClass}>
-          <Plus className="h-4 w-4" /> Add Expense
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <LiveIndicator lastTickAt={liveTick} />
+          <button onClick={() => setCreating(true)} className={primaryBtnClass}>
+            <Plus className="h-4 w-4" /> Add Expense
+          </button>
+        </div>
       </div>
       <FinanceTabs level={user?.org_level_code} />
 
@@ -217,7 +224,7 @@ function CreateExpenseModal({ onClose }: { onClose: () => void }) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
-      queryClient.invalidateQueries({ queryKey: ['finance-overview'] });
+      queryClient.invalidateQueries({ queryKey: ['finance'] });
       toast('Expense saved', 'success');
       onClose();
     },

@@ -50,7 +50,7 @@ export default function CreateInvoiceModal({ onClose }: { onClose: () => void })
     mutationFn: (payload: InvoiceCreateInput) => createInvoice(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      queryClient.invalidateQueries({ queryKey: ['finance-overview'] });
+      queryClient.invalidateQueries({ queryKey: ['finance'] });
       toast('Invoice created', 'success');
       onClose();
     },

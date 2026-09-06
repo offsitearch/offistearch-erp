@@ -55,7 +55,7 @@ export default function FinanceDashboardPage() {
   const [period, setPeriod] = useState<PeriodKey>('month');
 
   const overviews = useQuery({
-    queryKey: ['finance-overview'],
+    queryKey: ['finance', 'overview'],
     queryFn: async () => {
       const [month, quarter, year, all] = await Promise.all(
         PERIODS.map((p) => getFinanceOverview(p.key)),

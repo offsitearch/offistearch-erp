@@ -34,6 +34,7 @@ import { getTasks } from '../../api/tasks';
 import { addDays, weekStartFor } from '../../lib/date';
 import { StudioMark } from '../../components/BrandLogo';
 import { PageGate } from '../../components/PageGate';
+import { useToast } from '../../components/Toast';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { MetricCard } from '../../components/ui/MetricCard';
 import { SectionCard } from '../../components/ui/SectionCard';
@@ -54,6 +55,7 @@ import { formatDateRange, formatDuration, formatMinutesDuration, formatTime, toI
 import type { AttendanceStatus, ProjectStatus, TaskStatus } from '../../lib/types';
 import { useAuthStore } from '../../store/authStore';
 import { encodeId } from '../../lib/obfuscate';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { useTranslation } from 'react-i18next';
 
 const CLOSED_PROJECT_STATUSES: ProjectStatus[] = ['completed', 'cancelled', 'on_hold'];
@@ -330,6 +332,7 @@ export default function DashboardPage() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const now = useNow();
   const level = user?.org_level_code;
   const isAdmin = canAccess(level, 'L2');
@@ -383,7 +386,7 @@ export default function DashboardPage() {
   const weekEndISO = toISODate(addDays(new Date(`${weekStartISO}T00:00:00`), 6));
 
   const outThisWeek = useQuery({
-    queryKey: ['leaves', 'out-this-week', weekStartISO],
+    queryKey: ['leaves', 'team-availability', weekStartISO],
     queryFn: () => getTeamAvailability(weekStartISO, weekEndISO),
     enabled: isAdmin || isLead,
     staleTime: 60_000,
@@ -419,8 +422,22 @@ export default function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
     ]);
 
-  const checkInMutation = useMutation({ mutationFn: checkIn, onSuccess: invalidateAfterCheck });
-  const checkOutMutation = useMutation({ mutationFn: checkOut, onSuccess: invalidateAfterCheck });
+  const checkInMutation = useMutation({
+    mutationFn: checkIn,
+    onSuccess: async (data) => {
+      await invalidateAfterCheck();
+      toast(`Checked in at ${formatTime(data.check_in_time)} — your day is live.`, 'success');
+    },
+  });
+  const checkOutMutation = useMutation({
+    mutationFn: checkOut,
+    onSuccess: async (data) => {
+      await invalidateAfterCheck();
+      toast(`Checked out at ${formatTime(data.check_out_time)} — hours finalized.`, 'success');
+    },
+  });
+
+  useLiveRefresh([['leaves'], ['finance']]);
 
   const lastUpdatedAt = Math.max(
     summary.dataUpdatedAt,

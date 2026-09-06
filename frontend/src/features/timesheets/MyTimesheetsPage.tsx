@@ -28,6 +28,9 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { LogoLoader } from '../../components/LogoLoader';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { useToast } from '../../components/Toast';
+import { LiveIndicator } from '../../components/LiveIndicator';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { addDays, buildMonthGrid, formatDate, formatDateRange, formatDuration, monthLabel, toISODate, WEEKDAYS } from '../../lib/date';
 import { STANDARD_WORKDAY_HOURS } from '../../lib/constants';
 import { primaryBtnClass, secondaryBtnClass } from '../../lib/styles';
@@ -231,6 +234,7 @@ function MiniCalendar({
 
 function DaySheet() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const todayIso = toISODate(new Date());
   const [weekOffset, setWeekOffset] = useState(0);
   const [showCalendar, setShowCalendar] = useState(false);
@@ -277,6 +281,7 @@ function DaySheet() {
     onSuccess: async () => {
       await invalidate();
       setDirty(false);
+      toast('Week saved.', 'success');
     },
   });
 
@@ -285,6 +290,7 @@ function DaySheet() {
     onSuccess: async () => {
       await invalidate();
       setDirty(false);
+      toast('Sent for approval — if it is approved, it will show here automatically within about a minute.', 'success');
     },
   });
 
@@ -829,6 +835,7 @@ function EntryEditorRow({
 }
 
 function History() {
+  const liveTick = useLiveRefresh([['timesheets', 'mine']]);
   const historyQuery = useQuery({
     queryKey: ['timesheets', 'mine'],
     queryFn: () => getMyTimesheets(),
@@ -871,6 +878,7 @@ function History() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <LiveIndicator lastTickAt={liveTick} />
           <input
             type="month"
             value={exportMonth}

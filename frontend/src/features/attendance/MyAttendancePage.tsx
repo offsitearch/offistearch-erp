@@ -19,6 +19,7 @@ import { formatDuration, formatMinutesDuration, formatTime, monthLabel, toISODat
 import type { AttendanceRecord, AttendanceStatus } from '../../lib/types';
 import { LogoLoader } from '../../components/LogoLoader';
 import { MonthCalendar } from './components/MonthCalendar';
+import { useToast } from '../../components/Toast';
 import { useTranslation } from 'react-i18next';
 
 const SUMMARY_ORDER: AttendanceStatus[] = ['present', 'late', 'half_day', 'work_from_home', 'absent', 'on_leave'];
@@ -56,6 +57,7 @@ function ClockDisplay({ time }: { time: Date }) {
 export default function MyAttendancePage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [viewMonth, setViewMonth] = useState(() => new Date());
   const todayISO = toISODate(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(todayISO);
@@ -111,6 +113,7 @@ export default function MyAttendancePage() {
       setCheckInLocation('');
       setCheckInNote('');
       setNotice({ kind: 'success', text: `Checked in successfully at ${formatTime(data.check_in_time)}.` });
+      toast(`Checked in at ${formatTime(data.check_in_time)} — your day is live.`, 'success');
     },
     onError: () => setNotice({ kind: 'error', text: "Couldn't record your check-in. Please try again." }),
   });
@@ -121,6 +124,7 @@ export default function MyAttendancePage() {
       invalidate();
       setConfirmCheckout(false);
       setNotice({ kind: 'success', text: `Checked out successfully at ${formatTime(data.check_out_time)}.` });
+      toast(`Checked out at ${formatTime(data.check_out_time)} — hours finalized.`, 'success');
     },
     onError: () => setNotice({ kind: 'error', text: "Couldn't record your check-out. Please try again." }),
   });

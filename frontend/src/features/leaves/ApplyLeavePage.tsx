@@ -9,6 +9,7 @@ import { toISODate } from '../../lib/date';
 import type { LeaveType } from '../../lib/types';
 import { LeaveTabs } from './components/LeaveTabs';
 import DatePicker from '../../components/ui/DatePicker';
+import { useToast } from '../../components/Toast';
 import { useTranslation } from 'react-i18next';
 import { inputClass, secondaryBtnClass, primaryBtnClass } from '../../lib/styles';
 
@@ -34,6 +35,7 @@ export default function ApplyLeavePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
+  const { toast } = useToast();
   const today = toISODate(new Date());
 
   const prefill = (location.state as { prefill?: ApplyPrefill } | null)?.prefill;
@@ -57,6 +59,7 @@ export default function ApplyLeavePage() {
     mutationFn: applyLeave,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leaves'] });
+      toast('Leave request submitted — you will see the decision here live within about a minute.', 'success');
       navigate('/leaves/my', { state: { leaveNotice: 'Leave request submitted.' } });
     },
     onError: (err: { response?: { data?: { detail?: string } } }) => {

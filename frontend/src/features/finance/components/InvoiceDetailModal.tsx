@@ -64,7 +64,7 @@ export default function InvoiceDetailModal({ id, onClose }: { id: number; onClos
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['invoice', id] });
     queryClient.invalidateQueries({ queryKey: ['invoices'] });
-    queryClient.invalidateQueries({ queryKey: ['finance-overview'] });
+    queryClient.invalidateQueries({ queryKey: ['finance'] });
   }
 
   if (invoice.isPending) {

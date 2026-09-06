@@ -103,7 +103,7 @@ export default function PayrollPage() {
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['payroll', key.year, key.month] });
-    queryClient.invalidateQueries({ queryKey: ['finance-overview'] });
+    queryClient.invalidateQueries({ queryKey: ['finance'] });
   }
 
   const toastError = (err: unknown, fallback: string) => toast(errDetail(err) ?? fallback, 'error');
@@ -239,7 +239,10 @@ function RunCard({
 
   const approve = useMutation({
     mutationFn: (userId: number) => approvePayrollEntry(run.id, userId),
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      refetch();
+      toast('Entry approved — run progress updates live.', 'success');
+    },
     onError: (err) => toastError(err, 'Could not approve entry'),
   });
   const removeEntry = useMutation({
@@ -251,7 +254,7 @@ function RunCard({
     mutationFn: () => submitPayrollReview(run.id),
     onSuccess: (updated) => {
       refetch();
-      toast(`Run #${updated.id} sent for review`, 'success');
+      toast(`Run #${updated.id} sent for review — status updates appear live, usually within a minute.`, 'success');
     },
     onError: (err) => toastError(err, 'Could not submit for review'),
   });

@@ -17,6 +17,8 @@ import { formatDate, formatDateRange, formatDayCount, toISODate } from '../../li
 import type { LeaveBalance, LeaveRecord, LeaveType } from '../../lib/types';
 import { LogoLoader } from '../../components/LogoLoader';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { useToast } from '../../components/Toast';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { LeaveTabs } from './components/LeaveTabs';
 import { LeaveStatusBadge } from './components/LeaveStatusBadge';
 import { useTranslation } from 'react-i18next';
@@ -80,11 +82,14 @@ export default function MyLeavesPage() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const year = new Date().getFullYear();
   const today = toISODate(new Date());
   const [cancellingId, setCancellingId] = useState<number | null>(null);
+
+  useLiveRefresh([['leaves', 'mine'], ['leaves', 'balance']]);
 
   const notice = (location.state as { leaveNotice?: string } | null)?.leaveNotice ?? null;
 
@@ -100,12 +105,14 @@ export default function MyLeavesPage() {
 
   const cancelMutation = useMutation({
     mutationFn: cancelLeave,
-    onSuccess: () =>
-      Promise.all([
+    onSuccess: () => {
+      toast('Leave request cancelled.', 'success');
+      return Promise.all([
         queryClient.invalidateQueries({ queryKey: ['leaves', 'mine'] }),
         queryClient.invalidateQueries({ queryKey: ['leaves', 'balance'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-      ]),
+      ]);
+    },
   });
 
   function handleCancel(id: number) {
