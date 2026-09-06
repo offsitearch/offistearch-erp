@@ -1,7 +1,19 @@
 """Async engine/session (kernel k0) — created lazily.
 
-Ported from the reference monolith ``app/db/session.py`` including the external
-pooler (Supavisor/PgBouncer) detection that switches to NullPool.
+The engine reuses connections via SQLAlchemy's real pool in every
+environment except tests. Historically the external pooler
+(Supavisor/PgBouncer) host caused a switch to NullPool (one fresh DB
+connection per request); that meant every request paid the full
+TCP+TLS+SCRAM connection cost (~3s against a far-away Supabase pooler)
+which made pages take 5-10s. With the pooler in session mode (port
+5432) or transaction mode (port 6543) an app-side pool is safe and
+turns per-query latency from seconds to tens of milliseconds.
+
+Prepared-statement handling stays hardened for pooler compatibility:
+asyncpg's statement cache is disabled and prepared statements get
+unique names so Supavisor never rejects them
+(DuplicatePreparedStatementError). Tests keep NullPool (fresh
+connection per request).
 
 The engine is created lazily on first access so the kernel can be imported
 and tested without a database driver installed (the asyncpg driver import is
@@ -12,7 +24,6 @@ unchanged: callers use ``AsyncSessionLocal`` / ``get_db`` exactly as before.
 import uuid
 from collections.abc import AsyncGenerator
 from functools import lru_cache
-from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -20,39 +31,16 @@ from sqlalchemy.pool import NullPool
 from studioerp.config import settings
 
 
-def _is_external_pooler(url: str) -> bool:
-    """Detect Supavisor / PgBouncer pooler URLs.
-
-    When an external pooler already manages connections, SQLAlchemy's built-in
-    pool causes double-pooling and prepared-statement conflicts. Use NullPool
-    to hand connection lifecycle to the pooler.
-    """
-    try:
-        host = urlparse(url).hostname or ""
-    except Exception:
-        return False
-    return "pooler.supabase.com" in host or "pgbouncer" in host
-
-
 @lru_cache
 def _make_engine():
-    use_null_pool = settings.environment == "test" or _is_external_pooler(settings.database_url)
-    connect_args: dict = {}
-    if use_null_pool:
-        # Supavisor/PgBouncer in transaction mode rejects fixed prepared-statement
-        # names (DuplicatePreparedStatementError). In particular asyncpg prepares a
-        # fixed internal type-introspection statement ("__asyncpg_stmt_b__") that
-        # collides across pooler connections, so disable asyncpg's statement cache
-        # entirely (statement_cache_size=0). Give SQLAlchemy's own prepared
-        # statements unique names so nothing is reused across pooler connections.
-        connect_args = {
-            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
-            "statement_cache_size": 0,
-        }
+    use_null_pool = settings.environment == "test"
     engine_kwargs: dict = {
         "echo": False,
         "pool_pre_ping": True,
-        "connect_args": connect_args,
+        "connect_args": {
+            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
+            "statement_cache_size": 0,
+        },
     }
     if use_null_pool:
         engine_kwargs["poolclass"] = NullPool
